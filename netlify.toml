@@ -5,9 +5,7 @@
 [build.environment]
   NODE_VERSION = "24"
 
-# SvelteKit (adapter-netlify) handles routing; SPA-style fallback for prerendered app shell.
-[[redirects]]
-  from = "/*"
-  to = "/.netlify/functions/sveltekit"
-  status = 200
-  force = false
+# No [[redirects]] needed: @sveltejs/adapter-netlify (v7) registers its own
+# `sveltekit-render` function via the Netlify Frameworks API (.netlify/v1/functions)
+# with `path: "/*"` and `preferStatic: true`, so static assets are served first
+# and every other request reaches the SvelteKit server.
