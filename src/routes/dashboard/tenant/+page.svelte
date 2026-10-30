@@ -26,15 +26,20 @@
 	import MoveOutNoticeDialog from '$lib/components/MoveOutNoticeDialog.svelte';
 	import LeaseDetailsDialog from '$lib/components/LeaseDetailsDialog.svelte';
 	import BillingStatement from '$lib/components/BillingStatement.svelte';
+	import HelpVideoDialog from '$lib/components/HelpVideoDialog.svelte';
 	import { docUrl, isImageFile, maintenancePhotoError, MAINTENANCE_PHOTO, noticePdfUrl, daysBetween } from '$lib/files';
 	import { formatDate, formatMoney } from '$lib/format';
 	import { billStatus, monthLabel } from '$lib/billing';
-	import type { Charge, DocRecord, MoveOutNotice } from '$lib/types';
-	import { Eye, FileText, House, Receipt, Wallet, ClipboardCheck, Wrench, MessageSquare, ShieldCheck, Zap, Check, Copy, HandCoins, Camera, LogOut, X } from '@lucide/svelte';
+	import type { Charge, DocRecord, MoveOutNotice, PropertyAccess } from '$lib/types';
+	import { Eye, FileText, House, Receipt, Wallet, ClipboardCheck, Wrench, MessageSquare, ShieldCheck, Zap, Check, Copy, HandCoins, Camera, LogOut, X, Play } from '@lucide/svelte';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 	let lease = $derived(data.lease);
 	let leaseOpen = $state(false);
+	let dashboardOverviewOpen = $state(false);
+	let dashboardOverviewVideo = $derived(data.helpVideos.find((v) => v.placement === 'tenant_dashboard') ?? null);
+	let propertyAccessVisible = $state<Record<string, boolean>>({});
+	let propertyAccessCopied = $state<Record<string, boolean>>({});
 	let cleaningReceipts = $derived(data.documents.filter((d) => d.kind === 'receipt'));
 
 	// Move-out notice dialog (null = new notice; a notice = correction/new version).
@@ -59,6 +64,19 @@
 			zelleCopyTimer = setTimeout(() => (zelleCopied = false), 2000);
 		} catch {
 			// Clipboard unavailable (e.g. insecure context) — leave the button unchanged.
+		}
+	}
+
+	async function copyPropertyAccess(entry: PropertyAccess) {
+		const text = `${entry.label}\nCode: ${entry.code}\nInstructions: ${entry.instructions || 'None provided.'}`;
+		try {
+			await navigator.clipboard.writeText(text);
+			propertyAccessCopied[entry.id] = true;
+			window.setTimeout(() => {
+				propertyAccessCopied[entry.id] = false;
+			}, 1800);
+		} catch {
+			propertyAccessCopied[entry.id] = false;
 		}
 	}
 
@@ -316,10 +334,67 @@
 </svelte:head>
 
 <div class="flex flex-col gap-6">
-	<div>
-		<h1 class="text-2xl font-bold tracking-tight text-white drop-shadow-sm">Tenant dashboard</h1>
-		<p class="text-white/85 drop-shadow-sm">Welcome, {data.user.name || data.user.email}.</p>
+	<div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+		<div>
+			<h1 class="text-2xl font-bold tracking-tight text-white drop-shadow-sm">Tenant dashboard</h1>
+			<p class="text-white/85 drop-shadow-sm">Welcome, {data.user.name || data.user.email}.</p>
+		</div>
+		{#if dashboardOverviewVideo}
+			<Button variant="outline" size="sm" class="min-h-11 self-start" onclick={() => (dashboardOverviewOpen = true)}>
+				<Play class="size-4" /> Watch dashboard overview
+			</Button>
+		{/if}
 	</div>
+
+	{#if dashboardOverviewVideo}
+		<HelpVideoDialog bind:open={dashboardOverviewOpen} video={dashboardOverviewVideo} />
+	{/if}
+
+	{#if data.propertyAccess.length > 0}
+		<Card>
+			<CardHeader class="pb-3">
+				<CardTitle class="flex items-center gap-2">
+					<ShieldCheck class="text-ocean size-5" /> Property access
+				</CardTitle>
+				<CardDescription>Current gate and lockbox details for this unit.</CardDescription>
+			</CardHeader>
+			<CardContent class="space-y-3">
+				{#each data.propertyAccess as entry (entry.id)}
+					<div class="rounded-lg border border-slate-200 bg-slate-50 p-3">
+						<div class="flex items-center justify-between gap-2">
+							<div>
+								<p class="font-medium text-slate-900">{entry.label}</p>
+								<p class="text-xs text-slate-500">
+									{entry.type === 'gate' ? 'Gate access' : 'Door lockbox'}
+									{entry.type === 'gate' && entry.property ? ` · ${entry.property}` : ''}
+									{entry.type === 'door_lockbox' && entry.unit ? ` · ${entry.unit}` : ''}
+								</p>
+							</div>
+							<Button type="button" variant="outline" size="sm" class="min-h-9" onclick={() => (propertyAccessVisible[entry.id] = !propertyAccessVisible[entry.id])}>
+								{propertyAccessVisible[entry.id] ? 'Hide' : 'Show'} code
+							</Button>
+						</div>
+						<div class="mt-2 flex items-center gap-2 text-sm">
+							<span class="text-slate-600">Code:</span>
+							<span class="rounded border border-slate-200 bg-white px-2 py-1 font-mono">
+								{propertyAccessVisible[entry.id] ? entry.code : '••••'}
+							</span>
+							<Button type="button" variant="ghost" size="sm" class="min-h-9 px-2" onclick={() => copyPropertyAccess(entry)}>
+								{#if propertyAccessCopied[entry.id]}
+									<Check class="size-4" />
+								{:else}
+									<Copy class="size-4" />
+								{/if}
+							</Button>
+						</div>
+						{#if entry.instructions}
+							<p class="mt-2 text-sm text-slate-600">{entry.instructions}</p>
+						{/if}
+					</div>
+				{/each}
+			</CardContent>
+		</Card>
+	{/if}
 
 	{#if !lease}
 		<Card>

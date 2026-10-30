@@ -18,7 +18,7 @@ export const GET: RequestHandler = async (event) => {
 	const user = event.locals.user;
 	if (!user) error(401, 'Sign in required.');
 	const collection = event.params.collection;
-	const allowed = ['documents', 'inspections', 'maintenance_requests', 'move_out_notices'];
+	const allowed = ['documents', 'inspections', 'maintenance_requests', 'move_out_notices', 'help_videos'];
 	if (!allowed.includes(collection)) {
 		error(404, 'Not found.');
 	}

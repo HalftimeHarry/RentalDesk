@@ -7,7 +7,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { namedTenants, notifySignedInspection, resolveRecipients } from '../src/lib/server/inspection-notify.ts';
-import { signaturesCoverSnapshot, snapshotMatchesContent } from '../src/lib/inspection.ts';
+import {
+	unfinishedInspectionCandidates,
+	signedInspectionCandidates,
+	signaturesCoverSnapshot,
+	snapshotMatchesContent
+} from '../src/lib/inspection.ts';
 
 const STAFF = { id: 'u-staff', email: 'staff@example.com', name: 'Staff Person' };
 const TENANT = { id: 'u-tenant', email: 'tenant@example.com', name: 'Tenant Person' };
@@ -71,6 +76,30 @@ test('snapshotMatchesContent detects drift and accepts a matching snapshot', () 
 	assert.ok(snapshotMatchesContent({ ...baseInspection, signed_snapshot: snapshot }));
 	assert.ok(!snapshotMatchesContent({ ...baseInspection, signed_snapshot: snapshot, notes: 'edited later' }));
 	assert.ok(!signaturesCoverSnapshot({ ...baseInspection, signed_snapshot: snapshot, notes: 'edited later' }));
+});
+
+test('inspection selection helpers only keep the matching unfinished or signed record', () => {
+	const inspections = [
+		{ id: 'draft-move-in', type: 'move_in', stage: 'draft', archived: false, created: '2026-01-01T00:00:00Z', updated: '2026-01-01T00:00:00Z' },
+		{ id: 'signed-move-in', type: 'move_in', stage: 'signed', archived: false, created: '2026-01-02T00:00:00Z', updated: '2026-01-02T00:00:00Z' },
+		{ id: 'completed-move-in', type: 'move_in', stage: 'completed', archived: false, created: '2026-01-03T00:00:00Z', updated: '2026-01-03T00:00:00Z' },
+		{ id: 'archived-move-in', type: 'move_in', stage: 'draft', archived: true, created: '2026-01-04T00:00:00Z', updated: '2026-01-04T00:00:00Z' },
+		{ id: 'draft-move-out', type: 'move_out', stage: 'draft', archived: false, created: '2026-01-05T00:00:00Z', updated: '2026-01-05T00:00:00Z' },
+		{ id: 'signed-move-out', type: 'move_out', stage: 'signed', archived: false, created: '2026-01-06T00:00:00Z', updated: '2026-01-06T00:00:00Z' }
+	];
+
+	assert.deepEqual(
+		unfinishedInspectionCandidates(inspections, 'move_in').map((i) => i.id),
+		['draft-move-in']
+	);
+	assert.deepEqual(
+		signedInspectionCandidates(inspections, 'move_in').map((i) => i.id),
+		['signed-move-in']
+	);
+	assert.deepEqual(
+		unfinishedInspectionCandidates(inspections, 'move_out').map((i) => i.id),
+		['draft-move-out']
+	);
 });
 
 // ---- delivery tracking ----------------------------------------------------------

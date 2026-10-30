@@ -76,8 +76,10 @@
 	);
 
 	let finalized = $derived(data.inspection.stage === 'completed');
+	let hasAnySignature = $derived(!!(data.inspection.sig_landlord || data.inspection.sig_tenant));
 	let fullySigned = $derived(!!(data.inspection.sig_landlord && data.inspection.sig_tenant));
 	let forkedParam = $derived(page.url.searchParams.get('forked') === '1');
+	let revisedParam = $derived(page.url.searchParams.get('revised') === '1');
 
 	// Signature capture state
 	let landlordPad: SignaturePad | undefined = $state(undefined);
@@ -86,6 +88,7 @@
 	let tenantFile: HTMLInputElement | undefined = $state(undefined);
 	let dirty = $state(false);
 	let sigError = $state('');
+	let canCompleteInspection = $derived(fullySigned && !finalized && !dirty);
 
 	function markDirty(e: Event) {
 		// Typing in the signature card (names, etc.) must not mark content dirty.
@@ -206,6 +209,16 @@
 					preserved (read-only).{#if data.inspection.type === 'move_in'} Create the linked move-out
 						comparison from Inspection history.{/if}
 				</p>
+			{:else if hasAnySignature}
+				<div class="rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-sm">
+					<p class="text-navy font-medium">This signed inspection is locked for ordinary edits.</p>
+					<p class="text-navy/80 mt-1">
+						Create a revised inspection to update the content while preserving the signed version.
+					</p>
+					<form method="POST" action="?/createRevisionInspection" use:enhance class="mt-3">
+						<Button type="submit" class="min-h-12">Create revised inspection</Button>
+					</form>
+				</div>
 			{/if}
 
 			<form
@@ -216,7 +229,7 @@
 				oninput={markDirty}
 				class="contents"
 			>
-				<fieldset disabled={finalized} class="contents">
+				<fieldset disabled={finalized || hasAnySignature} class="contents">
 					<input type="hidden" name="checklist" value={JSON.stringify(checklist)} />
 
 					<!-- Inspection details -->
@@ -357,7 +370,8 @@
 									>
 						{#each oItems as item (item.idx)}
 							<li>
-								{item.name} — {checklist[item.idx][editableSide].comment || 'no comment'}
+								<span class="text-navy">{item.name}</span>
+								<span class="text-red-700 dark:text-red-300"> — {checklist[item.idx][editableSide].comment || 'no comment'}</span>
 							</li>
 						{/each}
 					</ul>
@@ -499,6 +513,14 @@
 							</section>
 						{/each}
 
+						{#if !finalized && !hasAnySignature}
+							<section class="border-navy/10 flex flex-col gap-2 border-t pt-5">
+								<Button type="submit" formaction="?/saveDraft" variant="outline" class="min-h-12 w-full sm:max-w-xs">
+									Save draft
+								</Button>
+							</section>
+						{/if}
+
 						<!-- Follow-ups & deposit documentation -->
 						<section class="border-navy/10 flex flex-col gap-4 border-t pt-5">
 							<div>
@@ -616,6 +638,7 @@
 						</section>
 				</fieldset>
 				<!-- Signatures: inside the form but outside the (possibly disabled) content fieldset -->
+				{#if !finalized}
 				<section class="border-navy/10 flex flex-col gap-4 border-t pt-5" data-signing>
 					<div>
 						<h2 class="text-navy flex items-center gap-2 text-lg font-semibold">
@@ -646,6 +669,10 @@
 					<p class="text-navy rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm">
 						You have unsaved changes — save the inspection first so both people sign the exact
 						reviewed version.
+					</p>
+				{:else if hasAnySignature && !fullySigned}
+					<p class="text-navy rounded-md border border-ocean/30 bg-ocean/10 px-3 py-2 text-sm">
+						Waiting for the remaining signer: {data.inspection.sig_landlord ? 'Tenant' : 'Landlord'}.
 					</p>
 				{/if}
 
@@ -708,7 +735,7 @@
 								type="submit"
 								formaction={who === 'landlord' ? '?/signLandlord' : '?/signTenant'}
 								class="min-h-12"
-								disabled={dirty}
+								disabled={dirty || finalized}
 								onclick={(e) => submitSignature(e, constWho)}
 							>
 								Sign as {who === 'landlord' ? 'Landlord' : 'Tenant'}
@@ -725,22 +752,27 @@
 						{/if}
 					</div>
 				</section>
+				{/if}
 
 				<!-- Actions: below the tenant signature section, above Signed Copy -->
 				{#if !finalized}
 					<section class="border-navy/10 flex flex-col gap-2 border-t pt-5 sm:flex-row">
-						<Button type="submit" formaction="?/saveDraft" variant="outline" class="min-h-12 flex-1">
-							Save draft
-						</Button>
-						<Button type="submit" class="min-h-12 flex-1">Save inspection</Button>
+						{#if !hasAnySignature}
+							<Button type="submit" class="min-h-12 flex-1">Save inspection</Button>
+						{/if}
 						<Button
 							type="submit"
 							formaction="?/finalizeInspection"
 							variant="secondary"
 							class="min-h-12 flex-1"
-							title="Save and make this inspection read-only"
+							disabled={!canCompleteInspection}
+							title={
+								canCompleteInspection
+									? 'Save and make this inspection read-only'
+									: 'Both signatures must be saved before completion.'
+							}
 						>
-							Finalize
+							Complete inspection
 						</Button>
 					</section>
 				{/if}

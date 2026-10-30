@@ -115,7 +115,11 @@ function contentKeyOf(i: Inspection, noteBody: string): string {
 }
 
 /** Shared save path for Save draft / Save inspection. */
-async function save(event: Parameters<Actions[string]>[0], forceDraft: boolean) {
+async function save(
+	event: Parameters<Actions[string]>[0],
+	forceDraft: boolean,
+	options: { allowSigned?: boolean } = {}
+) {
 	const { request, locals } = event;
 	const id = event.params.id!;
 	const user = locals.user!;
@@ -126,6 +130,14 @@ async function save(event: Parameters<Actions[string]>[0], forceDraft: boolean) 
 		existing = (await locals.pb.collection('inspections').getOne(id)) as unknown as Inspection;
 	} catch {
 		return fail(404, { section: 'inspection', message: 'Inspection not found.' });
+	}
+
+	const hasSignature = !!(existing.sig_landlord || existing.sig_tenant);
+	if (hasSignature && !options.allowSigned) {
+		return fail(400, {
+			section: 'inspection',
+			message: 'This inspection already has a signature. Create a revised inspection to continue editing.'
+		});
 	}
 
 	let checklist: ChecklistItem[];
@@ -172,59 +184,10 @@ async function save(event: Parameters<Actions[string]>[0], forceDraft: boolean) 
 		return fail(400, { section: 'inspection', message: 'Property address and unit are required.' });
 	}
 
-	// Signed-version protection: editing content after any signature exists
-	// creates a NEW unsigned revision; the signed record, its signatures, and
-	// its signed copy are never overwritten.
-	const hasSignature = !!(existing.sig_landlord || existing.sig_tenant);
-	const existingNoteBody = await loadPrivateNote(locals.pb, id);
+	// Signed records are protected: ordinary editing is blocked until a manager
+	// explicitly creates a new unsigned revision.
 	let targetId = id;
-	let forked = false;
-	const incomingKey = JSON.stringify({
-		address: data.address,
-		unit: data.unit,
-		tenant_names: data.tenant_names,
-		occupancy: data.occupancy,
-		move_in_date: data.move_in_date.slice(0, 10),
-		move_out_date: data.move_out_date.slice(0, 10),
-		date: data.date.slice(0, 10),
-		type: data.type,
-		notes: data.notes,
-		manager_notes: privateNoteBody,
-		checklist,
-		proposed_deductions
-	});
-	if (hasSignature && incomingKey !== contentKeyOf(existing, existingNoteBody)) {
-		try {
-			const copy = await locals.pb.collection('inspections').create({
-				lease: existing.lease || '',
-				date: data.date,
-				type: data.type,
-				notes: data.notes,
-				address: data.address,
-				unit: data.unit,
-				tenant_names: data.tenant_names,
-				occupancy: data.occupancy,
-				move_in_date: data.move_in_date,
-				move_out_date: data.move_out_date,
-				stage: 'draft',
-				created_by: user.id,
-				checklist,
-				proposed_deductions,
-				manager_notes: data.manager_notes,
-				revision_of: id
-			});
-			targetId = copy.id;
-			forked = true;
-			data.stage = 'draft';
-		} catch (e) {
-			return fail(500, {
-				section: 'inspection',
-				message: `Could not create an unsigned revision: ${pbError(e)}. Nothing was saved.`
-			});
-		}
-	}
-
-	if (!forked && existing.stage === 'completed') {
+	if (existing.stage === 'completed') {
 		return fail(400, {
 			section: 'inspection',
 			message: 'This inspection is finalized and can no longer be edited.'
@@ -284,8 +247,8 @@ async function save(event: Parameters<Actions[string]>[0], forceDraft: boolean) 
 
 	try {
 		// 'signed' is only ever granted by the signature flow, never by a form post.
-		if (data.stage === 'signed' && (forked || existing.stage !== 'signed')) {
-			data.stage = forked ? 'draft' : 'in_progress';
+		if (data.stage === 'signed' && existing.stage !== 'signed') {
+			data.stage = 'in_progress';
 		}
 		await locals.pb.collection('inspections').update(targetId, data);
 	} catch (e) {
@@ -315,11 +278,6 @@ async function save(event: Parameters<Actions[string]>[0], forceDraft: boolean) 
 		});
 	}
 
-	if (forked) {
-		// The signed original is preserved; continue on the new unsigned revision.
-		redirect(303, `/dashboard/inspections/${targetId}?forked=1`);
-	}
-
 	return {
 		section: 'inspection',
 		message: forceDraft ? 'Draft saved.' : 'Inspection saved.'
@@ -340,10 +298,12 @@ async function sign(event: Parameters<Actions[string]>[0], who: 'landlord' | 'te
 		return fail(404, { section: 'signatures', message: 'Inspection not found.' });
 	}
 
-	if (existing.stage === 'signed') {
+	if (existing.stage === 'signed' || existing.stage === 'completed') {
 		return fail(400, {
 			section: 'signatures',
-			message: 'This inspection is already fully signed. Editing content creates a new unsigned revision.'
+			message: existing.stage === 'completed'
+				? 'This inspection is already completed and read-only.'
+				: 'This inspection is already fully signed. Create a revised inspection to edit the content.'
 		});
 	}
 
@@ -504,6 +464,68 @@ export const actions: Actions = {
 		return save(event, false);
 	},
 
+	createRevisionInspection: async (event) => {
+		const user = event.locals.user;
+		if (!user || (user.role !== 'owner' && user.role !== 'admin')) {
+			return fail(403, { section: 'inspection', message: 'Management access required.' });
+		}
+		const id = event.params.id!;
+		const current = (await event.locals.pb.collection('inspections').getOne(id).catch(() => null)) as unknown as Inspection | null;
+		if (!current) return fail(404, { section: 'inspection', message: 'Inspection not found.' });
+		if (current.stage === 'completed') {
+			return fail(400, {
+				section: 'inspection',
+				message: 'This inspection is already completed and read-only.'
+			});
+		}
+		if (!(current.sig_landlord || current.sig_tenant)) {
+			return fail(400, {
+				section: 'inspection',
+				message: 'This inspection has no signed version yet. Save edits directly.'
+			});
+		}
+		try {
+			const revision = await event.locals.pb.collection('inspections').create({
+				lease: current.lease || '',
+				date: current.date,
+				type: current.type,
+				notes: current.notes,
+				address: current.address,
+				unit: current.unit,
+				tenant_names: current.tenant_names,
+				occupancy: current.occupancy,
+				move_in_date: current.move_in_date,
+				move_out_date: current.move_out_date,
+				stage: 'draft',
+				created_by: user.id,
+				checklist: current.checklist,
+				proposed_deductions: current.proposed_deductions,
+				manager_notes: '',
+				revision_of: id,
+				sig_landlord: '',
+				sig_landlord_name: '',
+				sig_landlord_at: '',
+				sig_landlord_meta: '',
+				sig_tenant: '',
+				sig_tenant_name: '',
+				sig_tenant_at: '',
+				sig_tenant_meta: '',
+				signed_snapshot: null,
+				final_pdf: '',
+				signed_copy: '',
+			});
+			throw redirect(303, `/dashboard/inspections/${revision.id}?revised=1`);
+		} catch (e) {
+			if (typeof e === 'object' && e && 'status' in e && 'location' in e) {
+				throw e;
+			}
+			return fail(500, {
+				section: 'inspection',
+				message: `Could not create a revised inspection: ${pbError(e)}`
+			});
+		}
+	},
+
 	removeItemPhoto: async ({ request, locals, params }) => {
 		const id = params.id!;
 		const user = locals.user!;
@@ -547,8 +569,21 @@ export const actions: Actions = {
 			return fail(403, { section: 'inspection', message: 'Management access required.' });
 		}
 		const id = event.params.id!;
+		const current = (await event.locals.pb.collection('inspections').getOne(id).catch(() => null)) as unknown as Inspection | null;
+		if (!current) {
+			return fail(404, { section: 'inspection', message: 'Inspection not found.' });
+		}
+		if (current.stage === 'completed') {
+			return fail(400, { section: 'inspection', message: 'This inspection is already completed and read-only.' });
+		}
+		if (!(current.sig_landlord && current.sig_tenant)) {
+			return fail(400, {
+				section: 'inspection',
+				message: 'Both signatures must be saved before the inspection can be completed.'
+			});
+		}
 		// Finalizing also saves the current form contents so nothing is lost.
-		const result = await save(event, false);
+		const result = await save(event, false, { allowSigned: true });
 		if (result && typeof result === 'object' && 'status' in result) return result;
 		try {
 			await event.locals.pb.collection('inspections').update(id, { stage: 'completed' });

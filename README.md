@@ -171,8 +171,10 @@ node --env-file=.env.test --env-file=.env.test.local scripts/verify-settings-per
   a short-lived per-user file token — PocketBase URLs and tokens stay server-side,
   and anonymous requests are rejected.
 - Outbound email ([src/lib/server/mail.ts](src/lib/server/mail.ts)) is disabled
-  unless `PRIVATE_EMAIL_ENABLED=true` and every To/CC/BCC recipient must be on a
-  server-side test allowlist. No automatic notifications are currently wired.
+  unless `PRIVATE_EMAIL_ENABLED=true` and `EMAIL_TEST_TO` is set to a single valid
+  server-side test-recipient address. Every To/CC/BCC recipient must match that
+  normalized value; missing or invalid configuration fails closed. No automatic
+  notifications are currently wired.
 - Screening authorization/signature and SSN handling are intentionally **not
   implemented** pending a screening-provider decision; the app never collects SSNs.
 - Secrets live only in git-ignored env files and Netlify environment variables.
@@ -199,7 +201,8 @@ node --env-file=.env.test --env-file=.env.test.local scripts/verify-settings-per
 - `PUBLIC_POCKETBASE_URL` — PocketBase URL
 - `PRIVATE_POCKETBASE_SUPERUSER_EMAIL` / `PRIVATE_POCKETBASE_SUPERUSER_PASSWORD` —
   used by the scheduled bill-publishing function only
-- `RESEND_API_KEY`, `EMAIL_FROM`, `PRIVATE_EMAIL_ENABLED` — email (leave the enable
-  flag unset/false to keep all outbound email off)
+- `RESEND_API_KEY`, `EMAIL_FROM`, `EMAIL_TEST_TO`, `PRIVATE_EMAIL_ENABLED` — email
+  (leave the enable flag unset/false to keep all outbound email off; if set, only
+  the configured server-side test recipient may receive mail)
 
 Deployment does not touch PocketBase data or schema — provision separately.

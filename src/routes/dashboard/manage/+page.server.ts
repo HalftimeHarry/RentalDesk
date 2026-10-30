@@ -19,6 +19,7 @@ import type {
 	Message,
 	MoveOutNotice,
 	Payment,
+	PropertyAccess,
 	UnitSettings,
 	User
 } from '$lib/types';
@@ -154,6 +155,11 @@ export const load: PageServerLoad = async (event) => {
 		.getFullList({ sort: 'created' })
 		.catch(() => [])) as unknown as User[];
 
+	const propertyAccess = (await pb
+		.collection('property_access')
+		.getFullList({ sort: 'label' })
+		.catch(() => [])) as unknown as PropertyAccess[];
+
 	// Upcoming dates: lease end within 60 days + future inspections.
 	const today = new Date();
 	const in60 = new Date(today);
@@ -200,6 +206,7 @@ export const load: PageServerLoad = async (event) => {
 		messages,
 		invitations,
 		allUsers,
+		propertyAccess,
 		upcoming,
 		unpaidCharges,
 		moveOutNotices,
@@ -386,6 +393,62 @@ export const actions: Actions = {
 			return fail(500, { section: 'settings', message: `Could not remove photo: ${pbError(e)}` });
 		}
 		return { section: 'settings', message: 'Photo removed.' };
+	},
+
+	savePropertyAccess: async (event) => {
+		if (!staffUser(event)) return staffOnly();
+		const { request, locals } = event;
+		const form = await request.formData();
+		const id = String(form.get('id') ?? '').trim();
+		const label = String(form.get('label') ?? '').trim();
+		const type = String(form.get('type') ?? 'gate');
+		const property = String(form.get('property') ?? '').trim();
+		const unit = String(form.get('unit') ?? '').trim();
+		const code = String(form.get('code') ?? '').trim();
+		const instructions = String(form.get('instructions') ?? '').trim();
+		const active = form.get('active') === 'on';
+
+		if (!label || !code) {
+			return fail(400, { section: 'property_access', message: 'Label and code are required.' });
+		}
+		if (type === 'door_lockbox' && !unit) {
+			return fail(400, { section: 'property_access', message: 'Door lockboxes must include a unit.' });
+		}
+
+		const payload = {
+			label,
+			type,
+			property,
+			unit,
+			code,
+			instructions,
+			active
+		};
+
+		try {
+			if (id) {
+				await locals.pb.collection('property_access').update(id, payload);
+				return { section: 'property_access', message: 'Property access saved.' };
+			}
+			await locals.pb.collection('property_access').create(payload);
+			return { section: 'property_access', message: 'Property access entry created.' };
+		} catch (e) {
+			return fail(500, { section: 'property_access', message: `Save failed: ${pbError(e)}` });
+		}
+	},
+
+	deletePropertyAccess: async (event) => {
+		if (!staffUser(event)) return staffOnly();
+		const { request, locals } = event;
+		const form = await request.formData();
+		const id = String(form.get('id') ?? '').trim();
+		if (!id) return fail(400, { section: 'property_access', message: 'Missing property access id.' });
+		try {
+			await locals.pb.collection('property_access').delete(id);
+		} catch (e) {
+			return fail(500, { section: 'property_access', message: `Delete failed: ${pbError(e)}` });
+		}
+		return { section: 'property_access', message: 'Property access deleted.' };
 	},
 
 	setApplicationStatus: async (event) => {

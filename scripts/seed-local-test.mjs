@@ -194,6 +194,37 @@ if (existingInsp) {
 	report('inspection', 'move-in draft', true);
 }
 
+// --- sample property access -----------------------------------------------------
+const propertyAccessRows = [
+	{
+		label: 'Main gate code',
+		type: 'gate',
+		property: '2728 B Street, San Diego, CA 92102',
+		unit: '',
+		code: '2481',
+		instructions: 'Enter through the south gate and use the keypad on the left.',
+		active: true
+	},
+	{
+		label: 'Front door lockbox',
+		type: 'door_lockbox',
+		property: '2728 B Street, San Diego, CA 92102',
+		unit: 'Rental Unit',
+		code: '4318',
+		instructions: 'The lockbox is mounted to the front doorknob; return the code when done.',
+		active: true
+	}
+];
+for (const row of propertyAccessRows) {
+	const existingAccess = await pb.collection('property_access').getFirstListItem(`label = "${row.label}" && active = true`).catch(() => null);
+	if (existingAccess) {
+		report('property access', `${row.label} (${row.type})`, false);
+		continue;
+	}
+	await pb.collection('property_access').create(row);
+	report('property access', `${row.label} (${row.type})`, true);
+}
+
 console.log(`\nSeed complete: ${summary.filter((s) => s.created).length} created, ${summary.filter((s) => !s.created).length} already present.`);
 console.log('Accounts: owner@ / admin@ / applicant@ / tenant@ — all @example.test (password in .env.test.local, not shown).');
 console.log('invitee@example.test intentionally left uncreated for invitation testing.');

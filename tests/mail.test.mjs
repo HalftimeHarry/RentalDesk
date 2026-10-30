@@ -8,18 +8,23 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-	EMAIL_ALLOWLIST,
 	MailBlockedError,
 	allowedRecipients,
 	assertAllowedRecipients,
+	configuredTestRecipient,
 	isEmailEnabled,
 	sendMail
 } from '../src/lib/server/mail.ts';
 
-const OWNER = 'ddinsmore8@gmail.com';
+const OWNER = 'mail-test@example.com';
 
 function env(over = {}) {
-	return { PRIVATE_EMAIL_ENABLED: 'true', RESEND_API_KEY: 're_test_key', ...over };
+	return {
+		PRIVATE_EMAIL_ENABLED: 'true',
+		RESEND_API_KEY: 're_test_key',
+		EMAIL_TEST_TO: OWNER,
+		...over
+	};
 }
 
 /** Stub fetch that records calls; returns a fake 200. */
@@ -32,9 +37,12 @@ function spyFetch() {
 	return { calls, stub };
 }
 
-test('allowlist contains only the owner test address', () => {
-	assert.deepEqual([...allowedRecipients()], [OWNER]);
-	assert.equal(EMAIL_ALLOWLIST.length, 1);
+test('configured test recipient is the only allowed address', () => {
+	assert.equal(configuredTestRecipient(env()), OWNER);
+	assert.deepEqual([...allowedRecipients(env())], [OWNER]);
+	assert.equal(configuredTestRecipient(env({ EMAIL_TEST_TO: `  ${OWNER.toUpperCase()}  ` })), OWNER);
+	assert.deepEqual([...allowedRecipients(env({ EMAIL_TEST_TO: '' }))], []);
+	assert.deepEqual([...allowedRecipients(env({ EMAIL_TEST_TO: 'not-an-email' }))], []);
 });
 
 test('email is disabled unless explicitly enabled', () => {
@@ -58,7 +66,7 @@ test('disabled email never touches the network', async () => {
 	}
 });
 
-test('allowlisted recipient passes; case and whitespace normalized', async () => {
+test('configured recipient passes; case and whitespace normalized', async () => {
 	const { calls, stub } = spyFetch();
 	const realFetch = globalThis.fetch;
 	globalThis.fetch = stub;
@@ -75,7 +83,26 @@ test('allowlisted recipient passes; case and whitespace normalized', async () =>
 	}
 });
 
-test('any non-allowlisted To is blocked before the network', async () => {
+test('missing or invalid EMAIL_TEST_TO fails closed before the network', async () => {
+	const { calls, stub } = spyFetch();
+	const realFetch = globalThis.fetch;
+	globalThis.fetch = stub;
+	try {
+		await assert.rejects(
+			sendMail({ to: OWNER, subject: 's', text: 't' }, env({ EMAIL_TEST_TO: '' })),
+			MailBlockedError
+		);
+		await assert.rejects(
+			sendMail({ to: OWNER, subject: 's', text: 't' }, env({ EMAIL_TEST_TO: 'not-an-email' })),
+			MailBlockedError
+		);
+		assert.equal(calls.length, 0);
+	} finally {
+		globalThis.fetch = realFetch;
+	}
+});
+
+test('any non-configured To is blocked before the network', async () => {
 	const { calls, stub } = spyFetch();
 	const realFetch = globalThis.fetch;
 	globalThis.fetch = stub;
@@ -110,13 +137,62 @@ test('CC and BCC are equally restricted, even when To is allowed', async () => {
 });
 
 test('empty recipient list is blocked', () => {
-	assert.throws(() => assertAllowedRecipients({ to: [] }), MailBlockedError);
-	assert.throws(() => assertAllowedRecipients({ to: '  ' }), MailBlockedError);
+	assert.throws(() => assertAllowedRecipients({ to: [] }, env()), MailBlockedError);
+	assert.throws(() => assertAllowedRecipients({ to: '  ' }, env()), MailBlockedError);
+});
+
+test('malformed CC or BCC rejects before network calls', async () => {
+	const { calls, stub } = spyFetch();
+	const realFetch = globalThis.fetch;
+	globalThis.fetch = stub;
+	try {
+		await assert.rejects(
+			sendMail({ to: OWNER, cc: 'not-an-email', subject: 's', text: 't' }, env()),
+			MailBlockedError
+		);
+		await assert.rejects(
+			sendMail({ to: OWNER, bcc: '  ', subject: 's', text: 't' }, env()),
+			MailBlockedError
+		);
+		assert.equal(calls.length, 0);
+	} finally {
+		globalThis.fetch = realFetch;
+	}
+});
+
+test('blank recipient entry rejects before network calls', async () => {
+	const { calls, stub } = spyFetch();
+	const realFetch = globalThis.fetch;
+	globalThis.fetch = stub;
+	try {
+		await assert.rejects(
+			sendMail({ to: [OWNER, '  '], subject: 's', text: 't' }, env()),
+			MailBlockedError
+		);
+		assert.equal(calls.length, 0);
+	} finally {
+		globalThis.fetch = realFetch;
+	}
+});
+
+test('empty To with an allowed CC still rejects', async () => {
+	const { calls, stub } = spyFetch();
+	const realFetch = globalThis.fetch;
+	globalThis.fetch = stub;
+	try {
+		await assert.rejects(
+			sendMail({ to: '', cc: OWNER, subject: 's', text: 't' }, env()),
+			MailBlockedError
+		);
+		assert.equal(calls.length, 0);
+	} finally {
+		globalThis.fetch = realFetch;
+	}
 });
 
 test('missing API key is a config error, not a send', async () => {
 	await assert.rejects(
-		sendMail({ to: OWNER, subject: 's', text: 't' }, { PRIVATE_EMAIL_ENABLED: 'true' }),
+		sendMail({ to: OWNER, subject: 's', text: 't' }, env({ RESEND_API_KEY: undefined })),
 		/RESEND_API_KEY/
 	);
 });

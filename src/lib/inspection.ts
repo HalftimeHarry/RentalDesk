@@ -229,6 +229,49 @@ export const STAGE_LABELS: Record<InspectionStage, string> = {
 	signed: 'Signed'
 };
 
+type InspectionCandidate = Pick<
+	Inspection,
+	'id' | 'type' | 'stage' | 'archived' | 'created' | 'updated'
+> &
+	Partial<
+		Pick<
+			Inspection,
+			'sig_landlord' | 'sig_tenant' | 'tenant_names' | 'unit' | 'date'
+		>
+	>;
+
+export function unfinishedInspectionCandidates(
+	inspections: InspectionCandidate[],
+	type: 'move_in' | 'move_out'
+): InspectionCandidate[] {
+	return inspections
+		.filter(
+			(i) =>
+				i.type === type &&
+				!i.archived &&
+				i.stage !== 'signed' &&
+				i.stage !== 'completed'
+		)
+		.sort((a, b) => {
+			const aTime = new Date(a.updated || a.created || 0).getTime();
+			const bTime = new Date(b.updated || b.created || 0).getTime();
+			return bTime - aTime;
+		});
+}
+
+export function signedInspectionCandidates(
+	inspections: InspectionCandidate[],
+	type: 'move_in' | 'move_out'
+): InspectionCandidate[] {
+	return inspections
+		.filter((i) => i.type === type && !i.archived && i.stage === 'signed')
+		.sort((a, b) => {
+			const aTime = new Date(a.updated || a.created || 0).getTime();
+			const bTime = new Date(b.updated || b.created || 0).getTime();
+			return bTime - aTime;
+		});
+}
+
 export const DEFAULT_PROPERTY_ADDRESS = '2728 B Street, San Diego CA 92102';
 export const DEFAULT_UNIT = '102';
 

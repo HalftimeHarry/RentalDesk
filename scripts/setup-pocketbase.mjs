@@ -209,6 +209,7 @@ function collectionDefs(usersId, applicationsId, leasesId, inspectionsId, charge
 				{ name: 'checklist', type: 'json', maxSize: 5000000 },
 				{ name: 'proposed_deductions', type: 'json', maxSize: 1000000 },
 				{ name: 'manager_notes', type: 'text', max: 5000 },
+				{ name: 'archived', type: 'bool' },
 				{ name: 'signed_copy', type: 'file', maxSelect: 1, maxSize: 10485760, protected: true, mimeTypes: ['application/pdf', 'image/jpeg', 'image/png'] },
 				// Server-generated final report PDF, persisted when both signatures land.
 				// signed_copy stays for manually uploaded paper scans — separate use.
@@ -267,6 +268,44 @@ function collectionDefs(usersId, applicationsId, leasesId, inspectionsId, charge
 			// Public read so the landing page can show the listing.
 			listRule: '',
 			viewRule: '',
+			createRule: STAFF,
+			updateRule: STAFF,
+			deleteRule: STAFF
+		},
+		{
+			name: 'help_videos',
+			type: 'base',
+			fields: [
+				{ name: 'slug', type: 'text', required: true, max: 100 },
+				{ name: 'title', type: 'text', required: true, max: 200 },
+				{ name: 'description', type: 'text', max: 2000 },
+				{ name: 'audience', type: 'select', required: true, maxSelect: 1, values: ['tenant', 'admin'] },
+				{ name: 'placement', type: 'select', required: true, maxSelect: 1, values: ['tenant_dashboard', 'manage_billing'] },
+				{ name: 'video_file', type: 'file', required: true, maxSelect: 1, maxSize: 25165824, protected: true, mimeTypes: ['video/mp4'] },
+				{ name: 'thumbnail', type: 'file', required: true, maxSelect: 1, maxSize: 5242880, protected: true, mimeTypes: ['image/jpeg', 'image/png', 'image/webp'] },
+				{ name: 'captions', type: 'file', required: true, maxSelect: 1, maxSize: 1048576, protected: true, mimeTypes: ['text/vtt', 'text/plain'] },
+				{ name: 'active', type: 'bool', required: true }
+			],
+			listRule: `@request.auth.id != "" && active = true && ((audience = "tenant" && @request.auth.role = "tenant") || (audience = "admin" && (@request.auth.role = "admin" || @request.auth.role = "owner")))`,
+			viewRule: `@request.auth.id != "" && active = true && ((audience = "tenant" && @request.auth.role = "tenant") || (audience = "admin" && (@request.auth.role = "admin" || @request.auth.role = "owner")))`,
+			createRule: STAFF,
+			updateRule: STAFF,
+			deleteRule: STAFF
+		},
+		{
+			name: 'property_access',
+			type: 'base',
+			fields: [
+				{ name: 'label', type: 'text', required: true, max: 200 },
+				{ name: 'type', type: 'select', required: true, maxSelect: 1, values: ['gate', 'door_lockbox'] },
+				{ name: 'property', type: 'text', max: 200 },
+				{ name: 'unit', type: 'text', max: 100 },
+				{ name: 'code', type: 'text', required: true, max: 200 },
+				{ name: 'instructions', type: 'text', max: 1500 },
+				{ name: 'active', type: 'bool', required: true }
+			],
+			listRule: `@request.auth.id != "" && active = true && (@request.auth.role = "tenant" || @request.auth.role = "admin" || @request.auth.role = "owner")`,
+			viewRule: `@request.auth.id != "" && active = true && (@request.auth.role = "tenant" || @request.auth.role = "admin" || @request.auth.role = "owner")`,
 			createRule: STAFF,
 			updateRule: STAFF,
 			deleteRule: STAFF

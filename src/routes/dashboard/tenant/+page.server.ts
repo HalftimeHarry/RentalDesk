@@ -5,7 +5,7 @@ import { maintenancePhotoError, MAINTENANCE_PHOTO, daysBetween } from '$lib/file
 import { buildNoticePdf } from '$lib/server/pdf';
 import { managementContact } from '$lib/server/messages';
 import { getLeaseCharges, summarizeLedger } from '$lib/server/billing';
-import type { Charge, DocRecord, Inspection, Lease, MaintenanceRequest, Message, MoveOutNotice, Payment, UnitSettings } from '$lib/types';
+import type { Charge, DocRecord, HelpVideo, Inspection, Lease, MaintenanceRequest, Message, MoveOutNotice, Payment, PropertyAccess, UnitSettings } from '$lib/types';
 
 export const load: PageServerLoad = async (event) => {
 	const user = requireRole(event, ['tenant']);
@@ -86,6 +86,36 @@ export const load: PageServerLoad = async (event) => {
 		settings = null;
 	}
 
+	let helpVideos: HelpVideo[] = [];
+	try {
+		helpVideos = (await pb
+			.collection('help_videos')
+			.getFullList({
+				filter: 'active = true && audience = "tenant" && placement = "tenant_dashboard"',
+				sort: 'created'
+			})) as unknown as HelpVideo[];
+	} catch {
+		helpVideos = [];
+	}
+
+	let propertyAccess: PropertyAccess[] = [];
+	try {
+		const allAccess = (await pb
+			.collection('property_access')
+			.getFullList({ sort: 'label' })) as unknown as PropertyAccess[];
+		const targetProperty = settings?.address || '';
+		const targetUnit = settings?.unit_name || '';
+		propertyAccess = allAccess.filter((entry) => {
+			if (!entry.active) return false;
+			if (entry.type === 'gate') {
+				return !entry.property || entry.property === targetProperty || entry.property === targetUnit;
+			}
+			return !entry.unit || entry.unit === targetUnit || entry.unit === targetProperty;
+		});
+	} catch {
+		propertyAccess = [];
+	}
+
 	return {
 		user,
 		lease,
@@ -98,6 +128,8 @@ export const load: PageServerLoad = async (event) => {
 		contact,
 		settings,
 		moveOutNotices,
+		helpVideos,
+		propertyAccess,
 		ledger: summarizeLedger(charges, payments)
 	};
 };

@@ -19,6 +19,7 @@
 	import MessageThread from '$lib/components/MessageThread.svelte';
 	import { formatMoney, formatDate } from '$lib/format';
 	import { noticePdfUrl, daysBetween } from '$lib/files';
+	import { signedInspectionCandidates, unfinishedInspectionCandidates } from '$lib/inspection';
 	import { Input } from '$lib/components/ui/input';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { buttonVariants } from '$lib/components/ui/button';
@@ -55,19 +56,23 @@
 			}))
 	);
 
-	// Inspection workflow: the latest saved move-in / move-out records for the active
-	// lease drive the dashboard card's primary action — derived from PocketBase data,
-	// so it stays correct after refresh. The stage field itself stays internal.
-	let moveIn = $derived(
-		data.inspections
-			.filter((i) => i.type === 'move_in')
-			.sort((a, b) => b.created.localeCompare(a.created))[0]
+	// Inspection workflow: the card must continue the actual unfinished record for the
+	// matching type, not merely the latest record by type. Signed records are for
+	// review/completion, while completed/archived records are never treated as drafts.
+	let unfinishedMoveIns = $derived(
+		unfinishedInspectionCandidates(data.inspections, 'move_in')
 	);
-	let moveOut = $derived(
-		data.inspections
-			.filter((i) => i.type === 'move_out')
-			.sort((a, b) => b.created.localeCompare(a.created))[0]
+	let unfinishedMoveOuts = $derived(
+		unfinishedInspectionCandidates(data.inspections, 'move_out')
 	);
+	let signedMoveIns = $derived(
+		signedInspectionCandidates(data.inspections, 'move_in')
+	);
+	let signedMoveOuts = $derived(
+		signedInspectionCandidates(data.inspections, 'move_out')
+	);
+	let moveIn = $derived(unfinishedMoveIns[0] ?? signedMoveIns[0] ?? null);
+	let moveOut = $derived(unfinishedMoveOuts[0] ?? signedMoveOuts[0] ?? null);
 
 	// Move-out notices: a notice is superseded when a newer version links to it;
 	// originals are never edited.
@@ -77,6 +82,7 @@
 	const activeNotices = $derived(data.moveOutNotices.filter((n) => !supersededNoticeIds.has(n.id)));
 	const pendingNotices = $derived(activeNotices.filter((n) => n.status === 'submitted'));
 	const latestNotice = $derived(activeNotices[0]);
+
 </script>
 
 <svelte:head>
@@ -220,29 +226,47 @@
 			</CardDescription>
 		</CardHeader>
 		<CardContent class="flex flex-col gap-3">
-			{#if moveIn && moveIn.stage !== 'signed'}
-				<p class="text-muted-foreground text-sm">
-					The move-in inspection is saved and awaiting {moveIn.sig_landlord || moveIn.sig_tenant
-						? 'one more signature'
-						: 'landlord and tenant signatures'}.
-				</p>
-				<div>
-					<Button
-						href="/dashboard/inspections/{moveIn.id}"
-						size="lg"
-						class="min-h-12 w-full sm:w-auto"
-					>
-						<ClipboardList class="size-5" /> Continue move-in inspection
-					</Button>
-				</div>
-			{:else if moveIn?.stage === 'signed' && !moveOut}
+			{#if unfinishedMoveIns.length > 0}
+				{#if unfinishedMoveIns.length === 1}
+					<p class="text-muted-foreground text-sm">
+						The move-in inspection is saved and awaiting {unfinishedMoveIns[0].sig_landlord || unfinishedMoveIns[0].sig_tenant
+							? 'one more signature'
+							: 'landlord and tenant signatures'}.
+					</p>
+					<div>
+						<Button
+							href="/dashboard/inspections/{unfinishedMoveIns[0].id}"
+							size="lg"
+							class="min-h-12 w-full sm:w-auto"
+						>
+							<ClipboardList class="size-5" /> Continue move-in inspection
+						</Button>
+					</div>
+				{:else}
+					<p class="text-muted-foreground text-sm">
+						Multiple unfinished move-in inspections exist for this lease. Choose the draft to continue.
+					</p>
+					<div class="flex flex-col gap-2">
+						{#each unfinishedMoveIns as inspection (inspection.id)}
+							<Button
+								href="/dashboard/inspections/{inspection.id}"
+								variant="outline"
+								class="min-h-12 w-full justify-start text-left sm:w-auto"
+							>
+								<ClipboardList class="size-5" />
+								Continue move-in inspection — {inspection.tenant_names || 'Tenant'} · Unit {inspection.unit || '—'} · {formatDate(
+									inspection.date
+								)}
+							</Button>
+						{/each}
+					</div>
+				{/if}
+			{:else if signedMoveIns.length > 0 && !unfinishedMoveIns.length}
 				<p class="text-muted-foreground text-sm">
 					The move-in inspection is fully signed and preserved. Starting move-out creates a
 					separate draft with blank signatures and the move-in conditions attached for
 					comparison.
 				</p>
-				<!-- Reuses the existing createInspection action: snapshots move-in conditions
-					into a linked draft. Nothing is created until this button is used. -->
 				<form method="POST" action="/dashboard/inspections?/createInspection">
 					<input type="hidden" name="lease" value={data.activeLease?.id ?? ''} />
 					<input type="hidden" name="type" value="move_out" />
@@ -254,22 +278,55 @@
 						<ClipboardList class="size-5" /> Start move-out inspection
 					</Button>
 				</form>
-			{:else if moveOut && moveOut.stage !== 'signed'}
+			{:else if unfinishedMoveOuts.length > 0}
+				{#if unfinishedMoveOuts.length === 1}
+					<p class="text-muted-foreground text-sm">
+						The move-out inspection is saved and awaiting {unfinishedMoveOuts[0].sig_landlord || unfinishedMoveOuts[0].sig_tenant
+							? 'one more signature'
+							: 'landlord and tenant signatures'}.
+					</p>
+					<div>
+						<Button
+							href="/dashboard/inspections/{unfinishedMoveOuts[0].id}"
+							size="lg"
+							class="min-h-12 w-full sm:w-auto"
+						>
+							<ClipboardList class="size-5" /> Continue move-out inspection
+						</Button>
+					</div>
+				{:else}
+					<p class="text-muted-foreground text-sm">
+						Multiple unfinished move-out inspections exist for this lease. Choose the draft to continue.
+					</p>
+					<div class="flex flex-col gap-2">
+						{#each unfinishedMoveOuts as inspection (inspection.id)}
+							<Button
+								href="/dashboard/inspections/{inspection.id}"
+								variant="outline"
+								class="min-h-12 w-full justify-start text-left sm:w-auto"
+							>
+								<ClipboardList class="size-5" />
+								Continue move-out inspection — {inspection.tenant_names || 'Tenant'} · Unit {inspection.unit || '—'} · {formatDate(
+									inspection.date
+								)}
+							</Button>
+						{/each}
+					</div>
+				{/if}
+			{:else if signedMoveOuts.length > 0 && !unfinishedMoveOuts.length}
 				<p class="text-muted-foreground text-sm">
-					The move-out inspection is saved and awaiting {moveOut.sig_landlord || moveOut.sig_tenant
-						? 'one more signature'
-						: 'landlord and tenant signatures'}.
+					The move-out inspection is fully signed and preserved.
 				</p>
 				<div>
 					<Button
-						href="/dashboard/inspections/{moveOut.id}"
+						href="/dashboard/inspections/{signedMoveOuts[0].id}"
 						size="lg"
 						class="min-h-12 w-full sm:w-auto"
 					>
-						<ClipboardList class="size-5" /> Continue move-out inspection
+						<ClipboardList class="size-5" /> Review signed move-out report
 					</Button>
 				</div>
-			{:else if moveIn?.stage === 'signed' && moveOut?.stage === 'signed'}
+			{:else if signedMoveIns.length > 0 && signedMoveOuts.length > 0}
 				<p class="text-muted-foreground text-sm">
 					The move-in and move-out reports are both fully signed and preserved.
 				</p>
@@ -466,7 +523,7 @@
 		hasPending={!!data.pendingLease}
 	/>
 
-	<SettingsCard settings={data.settings} {form} />
+	<SettingsCard settings={data.settings} propertyAccess={data.propertyAccess} {form} />
 
 	<!-- Team & roles for all staff: invitations are Owner+Admin; role dropdowns
 	     stay Owner-only inside the card (and server/PocketBase-enforced). -->

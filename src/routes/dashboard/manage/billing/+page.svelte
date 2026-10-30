@@ -20,6 +20,7 @@
 	import { cn } from '$lib/utils';
 	import RecordPaymentDialog from '$lib/components/RecordPaymentDialog.svelte';
 	import BillingStatement from '$lib/components/BillingStatement.svelte';
+	import HelpVideoDialog from '$lib/components/HelpVideoDialog.svelte';
 	import {
 		ArrowLeft,
 		Calculator,
@@ -30,6 +31,7 @@
 		HandCoins,
 		LayoutList,
 		List,
+		Play,
 		Receipt,
 		ShieldCheck,
 		Upload,
@@ -39,6 +41,8 @@
 	import { billStatus, monthLabel } from '$lib/billing';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
+	let helpVideoOpen = $state(false);
+	let billingOverviewVideo = $derived(data.helpVideos.find((v) => v.placement === 'manage_billing') ?? null);
 
 	const typeLabels: Record<string, string> = {
 		rent: 'Rent',
@@ -219,7 +223,16 @@
 			<ArrowLeft class="size-4" /> Management
 		</Button>
 		<h1 class="text-navy text-2xl font-bold tracking-tight">Billing</h1>
+		{#if billingOverviewVideo}
+			<Button variant="outline" size="sm" class="ml-auto min-h-11" onclick={() => (helpVideoOpen = true)}>
+				<Play class="size-4" /> Watch Billing overview
+			</Button>
+		{/if}
 	</div>
+
+	{#if billingOverviewVideo}
+		<HelpVideoDialog bind:open={helpVideoOpen} video={billingOverviewVideo} />
+	{/if}
 
 	{#if data.leasesError}
 		<p class="bg-destructive/10 text-destructive rounded-md px-3 py-2 text-sm">

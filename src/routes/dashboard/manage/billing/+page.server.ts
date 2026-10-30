@@ -7,7 +7,7 @@ import { getLeaseCharges, summarizeLedger } from '$lib/server/billing';
 import { isWithinWindow, publishWindow, laWallToUtcIso, formatLaDateTime } from '$lib/schedule';
 import { parseMoneyToCents } from '$lib/format';
 import { docUrl } from '$lib/files';
-import type { Charge, DocRecord, Lease, Payment, UnitSettings, User } from '$lib/types';
+import type { Charge, DocRecord, HelpVideo, Lease, Payment, UnitSettings, User } from '$lib/types';
 
 function pbError(e: unknown): string {
 	const err = e as { response?: { message?: string }; message?: string } | null;
@@ -53,8 +53,20 @@ export const load: PageServerLoad = async (event) => {
 		settings = null;
 	}
 
+	let helpVideos: HelpVideo[] = [];
+	try {
+		helpVideos = (await pb
+			.collection('help_videos')
+			.getFullList({
+				filter: 'active = true && audience = "admin" && placement = "manage_billing"',
+				sort: 'created'
+			})) as unknown as HelpVideo[];
+	} catch {
+		helpVideos = [];
+	}
+
 	if (!lease)
-		return { user, lease, leaseError, leases, leasesError, settings, charges: [], payments: [], chargesError: null, paymentsError: null, ledger: summarizeLedger([], []), billDocs: {}, today: new Date().toISOString().slice(0, 10) };
+		return { user, lease, leaseError, leases, leasesError, settings, charges: [], payments: [], chargesError: null, paymentsError: null, ledger: summarizeLedger([], []), billDocs: {}, helpVideos, today: new Date().toISOString().slice(0, 10) };
 
 	// Surface query failures instead of silently rendering an empty list.
 	// Charges come from the shared loader the tenant view also uses — identical
@@ -100,6 +112,7 @@ export const load: PageServerLoad = async (event) => {
 		paymentsError,
 		ledger: summarizeLedger(published, payments),
 		billDocs,
+		helpVideos,
 		today: new Date().toISOString().slice(0, 10)
 	};
 };

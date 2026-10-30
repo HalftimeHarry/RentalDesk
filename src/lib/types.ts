@@ -120,6 +120,36 @@ export interface Payment {
 
 export type MaintenanceStatus = 'open' | 'in_progress' | 'resolved';
 
+export interface HelpVideo {
+	id: string;
+	slug: string;
+	title: string;
+	description: string;
+	audience: 'tenant' | 'admin';
+	placement: 'tenant_dashboard' | 'manage_billing';
+	video_file: string;
+	thumbnail: string;
+	captions: string;
+	active: boolean;
+	created: string;
+	updated: string;
+}
+
+export type PropertyAccessType = 'gate' | 'door_lockbox';
+
+export interface PropertyAccess {
+	id: string;
+	label: string;
+	type: PropertyAccessType;
+	property: string;
+	unit: string;
+	code: string;
+	instructions: string;
+	active: boolean;
+	created: string;
+	updated: string;
+}
+
 /** Private manager annotation for an inspection — staff-only collection (the
  * inspection record itself is tenant-visible, so private notes cannot live on it). */
 export interface InspectionPrivateNote {
@@ -209,6 +239,7 @@ export interface Inspection {
 	sig_tenant_meta: string;
 	signed_snapshot: Record<string, unknown> | null; // frozen content when fully signed
 	revision_of: string; // -> inspections.id when this is an unsigned newer revision
+	archived: boolean;
 	created: string;
 	updated: string;
 	expand?: { created_by?: User; lease?: Lease };
