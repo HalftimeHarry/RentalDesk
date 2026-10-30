@@ -10,6 +10,8 @@
 	} from '$lib/components/ui/card';
 	import ApplicantsCard from '$lib/components/manage/ApplicantsCard.svelte';
 	import LeaseCard from '$lib/components/manage/LeaseCard.svelte';
+	import PendingLeaseCard from '$lib/components/manage/PendingLeaseCard.svelte';
+	import WorkflowGuideCard from '$lib/components/manage/WorkflowGuideCard.svelte';
 	import MaintenanceCard from '$lib/components/manage/MaintenanceCard.svelte';
 	import SettingsCard from '$lib/components/manage/SettingsCard.svelte';
 	import TeamCard from '$lib/components/manage/TeamCard.svelte';
@@ -428,11 +430,28 @@
 
 	<div class="grid gap-6 lg:grid-cols-2">
 		<ApplicantsCard applications={data.applications} {form} />
+		<WorkflowGuideCard
+			applications={data.applications}
+			lease={data.activeLease ?? data.pendingLease}
+			leaseDocuments={data.activeLease ? data.leaseDocuments : data.pendingLeaseDocuments}
+			charges={data.charges}
+			inspections={data.inspections}
+		/>
 		<div class="flex flex-col gap-6">
 			<UpcomingCard upcoming={data.upcoming} />
 			<MaintenanceCard maintenance={data.maintenance} {form} />
 		</div>
 	</div>
+
+	{#if data.pendingLease}
+		<PendingLeaseCard
+			lease={data.pendingLease}
+			documents={data.pendingLeaseDocuments}
+			application={data.pendingApplication}
+			proposedCharges={data.proposedCharges}
+			{form}
+		/>
+	{/if}
 
 	<LeaseCard
 		lease={data.activeLease}
@@ -444,13 +463,20 @@
 		today={data.today}
 		{form}
 		depositBilled={data.charges.some((c) => c.type === 'deposit' && c.status === 'published')}
+		hasPending={!!data.pendingLease}
 	/>
 
 	<SettingsCard settings={data.settings} {form} />
 
-	{#if isOwner}
-		<TeamCard users={data.allUsers} currentUserId={data.user.id} {form} />
-	{/if}
+	<!-- Team & roles for all staff: invitations are Owner+Admin; role dropdowns
+	     stay Owner-only inside the card (and server/PocketBase-enforced). -->
+	<TeamCard
+		users={data.allUsers}
+		invitations={data.invitations}
+		currentUserId={data.user.id}
+		isOwner={data.user.role === 'owner'}
+		{form}
+	/>
 
 	<Card>
 		<CardHeader>

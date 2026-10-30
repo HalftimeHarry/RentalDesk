@@ -7,9 +7,11 @@
  * Usage: node --env-file=.env scripts/verify-settings-persistence.mjs
  */
 import PocketBase from 'pocketbase';
+import { assertSafePocketBaseTarget } from './lib/pocketbase-target-guard.mjs';
 
 const PB = process.env.PUBLIC_POCKETBASE_URL;
 const APP = process.env.APP_URL || 'http://localhost:5173';
+assertSafePocketBaseTarget(PB);
 const pw = `Rd!${Math.random().toString(36).slice(2)}vQ7`;
 const email = 'rdtest-settings@example.com';
 

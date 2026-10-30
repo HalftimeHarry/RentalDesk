@@ -29,6 +29,13 @@ export const load: PageServerLoad = async (event) => {
 	}
 
 	const checklist = parseChecklist(inspection.checklist);
+	// Private manager notes come from the staff-only collection (the record field
+	// is retired and always blank). This page is staff-only.
+	const privateNote = await pb
+		.collection('inspection_private_notes')
+		.getFirstListItem(`inspection = "${inspection.id}"`)
+		.catch(() => null);
+	inspection.manager_notes = (privateNote as { body?: string } | null)?.body ?? '';
 	const documents = (await pb
 		.collection('documents')
 		.getFullList({ filter: `inspection = "${inspection.id}"`, sort: 'created' })

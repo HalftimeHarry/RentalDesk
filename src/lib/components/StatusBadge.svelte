@@ -7,6 +7,7 @@
 		under_review: { label: 'Under review', variant: 'warning' },
 		approved: { label: 'Approved', variant: 'success' },
 		denied: { label: 'Denied', variant: 'destructive' },
+		pending: { label: 'Pending', variant: 'warning' },
 		open: { label: 'Open', variant: 'warning' },
 		in_progress: { label: 'In progress', variant: 'info' },
 		resolved: { label: 'Resolved', variant: 'success' },

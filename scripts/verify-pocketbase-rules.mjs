@@ -10,6 +10,7 @@
  * Usage: node --env-file=.env scripts/verify-pocketbase-rules.mjs
  */
 import PocketBase from 'pocketbase';
+import { assertSafePocketBaseTarget } from './lib/pocketbase-target-guard.mjs';
 
 const url = process.env.PUBLIC_POCKETBASE_URL || 'http://127.0.0.1:8090';
 const suEmail = process.env.PRIVATE_POCKETBASE_SUPERUSER_EMAIL;
@@ -18,6 +19,7 @@ if (!suEmail || !suPassword) {
 	console.error('Missing PRIVATE_POCKETBASE_SUPERUSER_EMAIL / _PASSWORD.');
 	process.exit(1);
 }
+assertSafePocketBaseTarget(url);
 
 const TEST_PW = `Rd!${Math.random().toString(36).slice(2)}xQ9`;
 const EMAILS = {

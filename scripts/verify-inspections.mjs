@@ -8,12 +8,14 @@
  * Usage: node --env-file=.env scripts/verify-inspections.mjs
  */
 import PocketBase from 'pocketbase';
+import { assertSafePocketBaseTarget } from './lib/pocketbase-target-guard.mjs';
 
 // Plain-JS import of the shared checklist template (type stripping).
 const { emptyChecklist, INSPECTION_SECTIONS } = await import('../src/lib/inspection.ts');
 
 const PB = process.env.PUBLIC_POCKETBASE_URL;
 const APP = process.env.APP_URL || 'http://localhost:5173';
+assertSafePocketBaseTarget(PB);
 const pw = `Rd!${Math.random().toString(36).slice(2)}wQ4`;
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...new Array(32).fill(0)]);
 

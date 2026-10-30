@@ -14,6 +14,7 @@ const FALLBACK_SETTINGS: UnitSettings = {
 	min_lease_months: 3,
 	available_date: '',
 	is_available: false,
+	screening_fee_cents: 3500,
 	zelle_instructions: '',
 	photos: [],
 	created: '',

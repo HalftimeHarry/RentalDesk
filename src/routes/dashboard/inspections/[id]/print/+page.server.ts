@@ -24,8 +24,15 @@ export const load: PageServerLoad = async (event) => {
 		redirect(303, '/dashboard');
 	}
 	// Tenants must never receive private manager notes — not even in the
-	// serialized page data. Strip before anything is rendered or embedded.
-	if (!isStaff) {
+	// serialized page data. Staff read them from the staff-only collection (the
+	// record field itself is retired and always blank).
+	if (isStaff) {
+		const note = await pb
+			.collection('inspection_private_notes')
+			.getFirstListItem(`inspection = "${inspection.id}"`)
+			.catch(() => null);
+		inspection.manager_notes = (note as { body?: string } | null)?.body ?? '';
+	} else {
 		inspection.manager_notes = '';
 	}
 

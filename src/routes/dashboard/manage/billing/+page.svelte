@@ -762,10 +762,7 @@
 								</p>
 							</div>
 							<div class="flex items-center gap-2">
-								<StatusBadge status={st === 'partially_paid' ? 'in_progress' : st === 'paid' ? 'resolved' : st === 'draft' ? 'draft' : 'open'} />
-								<span class="text-muted-foreground text-xs">
-									{st === 'draft' ? 'Draft' : st === 'paid' ? 'Paid' : st === 'partially_paid' ? 'Partially paid' : 'Unpaid'}
-								</span>
+								<StatusBadge status={st} />
 							</div>
 						</div>
 						{#if summary}

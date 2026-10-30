@@ -75,6 +75,16 @@
 					/>
 				</div>
 				<div class="flex flex-col gap-2">
+					<Label for="s-fee">Credit-check fee (USD)</Label>
+					<Input
+						id="s-fee"
+						name="screening_fee"
+						inputmode="decimal"
+						required
+						value={((settings.screening_fee_cents > 0 ? settings.screening_fee_cents : 3500) / 100).toFixed(2)}
+					/>
+				</div>
+				<div class="flex flex-col gap-2">
 					<Label for="s-min">Minimum lease (months)</Label>
 					<Input
 						id="s-min"

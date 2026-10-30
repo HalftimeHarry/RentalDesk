@@ -189,6 +189,46 @@ export const actions: Actions = {
 		return { section: 'contact', message: 'Contact details saved.' };
 	},
 
+	// Cleaning-receipt upload — same documents pipeline as the applicant uploader,
+	// kind fixed to 'receipt' so it lands in the move-out section.
+	uploadReceipt: async ({ request, locals }) => {
+		const user = locals.user!;
+		const form = await request.formData();
+		const files = form.getAll('files').filter((f): f is File => f instanceof File && f.size > 0);
+		if (files.length === 0) {
+			return fail(400, { section: 'receipt', message: 'Choose a receipt file first.' });
+		}
+		const ALLOWED = ['application/pdf', 'image/jpeg', 'image/png'];
+		for (const file of files) {
+			if (!ALLOWED.includes(file.type)) {
+				return fail(400, { section: 'receipt', message: `"${file.name}" is not allowed — only PDF, JPEG, or PNG files.` });
+			}
+			if (file.size > 10 * 1024 * 1024) {
+				return fail(400, { section: 'receipt', message: `"${file.name}" exceeds the 10 MB limit.` });
+			}
+		}
+		// Link the current lease when one exists (management billing views filter by lease).
+		let leaseId = '';
+		try {
+			const l = await locals.pb
+				.collection('leases')
+				.getFirstListItem(`tenant = "${user.id}"`, { sort: '-created' });
+			leaseId = l.id;
+		} catch {
+			// no lease — receipt still uploads without the link
+		}
+		for (const file of files) {
+			const payload = new FormData();
+			payload.append('owner', user.id);
+			payload.append('title', files.length > 1 ? `Cleaning receipt — ${file.name}` : 'Cleaning receipt');
+			payload.append('kind', 'receipt');
+			payload.append('file', file);
+			if (leaseId) payload.append('lease', leaseId);
+			await locals.pb.collection('documents').create(payload);
+		}
+		return { section: 'receipt', message: files.length === 1 ? 'Receipt uploaded.' : `${files.length} receipts uploaded.` };
+	},
+
 	// "Give move-out notice": stores the notice with a server timestamp plus a
 	// frozen PDF copy. The client_token makes repeat clicks idempotent, and a
 	// correction creates a NEW record (supersedes) — the original is never edited.

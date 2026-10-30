@@ -26,6 +26,7 @@
 	} from '$lib/components/ui/card';
 	import * as Carousel from '$lib/components/ui/carousel';
 	import type { CarouselAPI } from '$lib/components/ui/carousel/context';
+	import MapPreview from '$lib/components/MapPreview.svelte';
 	import { formatDate, formatMoney } from '$lib/format';
 	import {
 		CalendarCheck,
@@ -38,6 +39,10 @@
 
 	let { data }: PageProps = $props();
 	let settings = $derived(data.settings);
+	// The saved settings address wins; the literal keeps the map useful if unset.
+	let propertyAddress = $derived(
+		settings.address || '2728 B Street, San Diego, CA 92102'
+	);
 
 	// Slideshow photos: cd.jpg first, then the 13 IMG_* photos in filename order.
 	// (cd.jpg also remains the dimmed app background.)
@@ -150,34 +155,40 @@
 			{/if}
 		</CardHeader>
 		<CardContent class="flex flex-col gap-4">
-			<div class="flex flex-wrap items-baseline gap-2">
-				<span class="text-ocean text-4xl font-bold tracking-tight"
-					>{formatMoney(settings.monthly_rent_cents)}</span
-				>
-				<span class="text-navy/70">/ month</span>
-			</div>
-			<div class="flex flex-col gap-2">
-				<span class="bg-turquoise/10 text-navy flex w-fit items-center gap-1.5 rounded-full px-3 py-1.5 text-sm">
-					<ShieldCheck class="text-turquoise size-4 shrink-0" />
-					Security deposit {formatMoney(settings.deposit_cents)}
-				</span>
-				<span class="bg-ocean/10 text-navy flex w-fit items-center gap-1.5 rounded-full px-3 py-1.5 text-sm">
-					<CalendarClock class="text-ocean size-4 shrink-0" />
-					{settings.min_lease_months}-month minimum lease
-				</span>
-				{#if settings.is_available}
-					{#if settings.available_date}
-						<span class="bg-gold/30 text-navy flex w-fit items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium">
-							<CalendarCheck class="text-ocean size-4 shrink-0" />
-							Available after {formatDate(settings.available_date)}
+			<!-- Details + map: side by side on sm+, stacked (map below) on mobile. -->
+			<div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+				<div class="flex min-w-0 flex-1 flex-col gap-4">
+					<div class="flex flex-wrap items-baseline gap-2">
+						<span class="text-ocean text-4xl font-bold tracking-tight"
+							>{formatMoney(settings.monthly_rent_cents)}</span
+						>
+						<span class="text-navy/70">/ month</span>
+					</div>
+					<div class="flex flex-col gap-2">
+						<span class="bg-turquoise/10 text-navy flex w-fit items-center gap-1.5 rounded-full px-3 py-1.5 text-sm">
+							<ShieldCheck class="text-turquoise size-4 shrink-0" />
+							Security deposit {formatMoney(settings.deposit_cents)}
 						</span>
-					{:else}
-						<span class="bg-turquoise/15 text-navy flex w-fit items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium">
-							<CalendarCheck class="text-turquoise size-4 shrink-0" />
-							Available now
+						<span class="bg-ocean/10 text-navy flex w-fit items-center gap-1.5 rounded-full px-3 py-1.5 text-sm">
+							<CalendarClock class="text-ocean size-4 shrink-0" />
+							{settings.min_lease_months}-month minimum lease
 						</span>
-					{/if}
-				{/if}
+						{#if settings.is_available}
+							{#if settings.available_date}
+								<span class="bg-gold/30 text-navy flex w-fit items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium">
+									<CalendarCheck class="text-ocean size-4 shrink-0" />
+									Available after {formatDate(settings.available_date)}
+								</span>
+							{:else}
+								<span class="bg-turquoise/15 text-navy flex w-fit items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium">
+									<CalendarCheck class="text-turquoise size-4 shrink-0" />
+									Available now
+								</span>
+							{/if}
+						{/if}
+					</div>
+				</div>
+				<MapPreview address={propertyAddress} />
 			</div>
 			<p class="leading-relaxed whitespace-pre-line">{settings.description}</p>
 

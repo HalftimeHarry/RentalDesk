@@ -31,6 +31,12 @@ export interface Application {
 	notes: string;
 	review_notes: string;
 	submitted: string; // ISO datetime or ''
+	/** Screening fee presented at submission time (snapshot — price changes never rewrite it). 0 before submission. */
+	screening_fee_cents: number;
+	/** Applicant-reported Zelle confirmation/reference. Means "payment reported", never "paid". */
+	screening_payment_ref: string;
+	/** Staff-confirmed receipt of the screening fee. Applicants can never set this (API rule). */
+	screening_fee_confirmed: boolean;
 	created: string;
 	updated: string;
 	expand?: { applicant?: User };
@@ -61,7 +67,7 @@ export interface DocRecord {
 	expand?: { owner?: User };
 }
 
-export type LeaseStatus = 'active' | 'ended';
+export type LeaseStatus = 'active' | 'ended' | 'pending';
 
 export interface Lease {
 	id: string;
@@ -114,6 +120,48 @@ export interface Payment {
 
 export type MaintenanceStatus = 'open' | 'in_progress' | 'resolved';
 
+/** Private manager annotation for an inspection — staff-only collection (the
+ * inspection record itself is tenant-visible, so private notes cannot live on it). */
+export interface InspectionPrivateNote {
+	id: string;
+	inspection: string; // relation -> inspections.id
+	body: string;
+	created_by: string; // relation -> users.id
+	created: string;
+	updated: string;
+}
+
+/** Per-recipient delivery tracking for a signed-inspection confirmation email. */
+export interface InspectionNotification {
+	id: string;
+	inspection: string; // relation -> inspections.id (the signed version)
+	recipient: string; // relation -> users.id ('' when no account)
+	email: string;
+	role: 'landlord' | 'tenant';
+	status: 'pending' | 'sent' | 'failed';
+	error: string;
+	attempts: number;
+	sent_at: string; // ISO datetime or ''
+	created: string;
+	updated: string;
+	expand?: { recipient?: User };
+}
+
+/** Staff invitation to become an Admin (only role invitations can grant). */
+export interface Invitation {
+	id: string;
+	email: string;
+	role: 'admin';
+	token: string;
+	status: 'pending' | 'accepted' | 'expired';
+	invited_by: string; // relation -> users.id
+	expires: string; // ISO datetime
+	accepted_by: string; // relation -> users.id ('' until accepted)
+	accepted_at: string; // ISO datetime ('' until accepted)
+	created: string;
+	updated: string;
+}
+
 export interface MaintenanceRequest {
 	id: string;
 	requester: string; // relation -> users.id
@@ -147,7 +195,9 @@ export interface Inspection {
 	checklist: import('./inspection').ChecklistItem[];
 	proposed_deductions: import('./inspection').ProposedDeduction[];
 	manager_notes: string; // private — never shown on tenant-facing reports
-	signed_copy: string; // protected file
+	signed_copy: string; // protected file (manually uploaded paper scan)
+	/** Server-generated final report PDF, persisted at signing (separate from signed_copy). */
+	final_pdf: string;
 	// Captured signatures + version tying
 	sig_landlord: string;
 	sig_landlord_name: string;
@@ -210,6 +260,8 @@ export interface UnitSettings {
 	min_lease_months: number;
 	available_date: string; // YYYY-MM-DD
 	is_available: boolean;
+	/** Credit-check (screening) fee presented to applicants before submission. */
+	screening_fee_cents: number;
 	zelle_instructions: string; // shown to tenants for out-of-band payments
 	photos: string[];
 	created: string;

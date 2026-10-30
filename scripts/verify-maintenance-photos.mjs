@@ -13,8 +13,10 @@
  * Usage: node --env-file=.env scripts/verify-maintenance-photos.mjs
  */
 import PocketBase from 'pocketbase';
+import { assertSafePocketBaseTarget } from './lib/pocketbase-target-guard.mjs';
 
 const url = process.env.PUBLIC_POCKETBASE_URL || 'http://127.0.0.1:8090';
+assertSafePocketBaseTarget(url);
 const email = process.env.PRIVATE_POCKETBASE_SUPERUSER_EMAIL;
 const password = process.env.PRIVATE_POCKETBASE_SUPERUSER_PASSWORD;
 

@@ -3,7 +3,7 @@ import type { PageServerLoad } from './$types';
 import { requireRole } from '$lib/server/guard';
 import { managementContact } from '$lib/server/messages';
 import { parseMoneyToCents } from '$lib/format';
-import type { Application, DocRecord, Message } from '$lib/types';
+import type { Application, DocRecord, Message, UnitSettings } from '$lib/types';
 
 async function loadData(locals: App.Locals, userId: string) {
 	let application: Application | null = null;
@@ -15,7 +15,7 @@ async function loadData(locals: App.Locals, userId: string) {
 		application = null;
 	}
 
-	const [documents, messages, contact] = await Promise.all([
+	const [documents, messages, contact, settings] = await Promise.all([
 		locals.pb
 			.collection('documents')
 			.getFullList({ filter: `owner = "${userId}"`, sort: '-created' })
@@ -30,10 +30,16 @@ async function loadData(locals: App.Locals, userId: string) {
 			})
 			.then((r) => r as unknown as Message[])
 			.catch(() => [] as Message[]),
-		managementContact(locals.pb)
+		managementContact(locals.pb),
+		// Settings rules are public read (listing page) — fee + payment instructions.
+		locals.pb
+			.collection('settings')
+			.getList(1, 1, { sort: 'created' })
+			.then((r) => (r.items.length > 0 ? (r.items[0] as unknown as UnitSettings) : null))
+			.catch(() => null)
 	]);
 
-	return { application, documents, messages, contact };
+	return { application, documents, messages, contact, settings };
 }
 
 export const load: PageServerLoad = async (event) => {
@@ -96,8 +102,9 @@ export const actions: Actions = {
 		return { section: 'application', message: 'Draft saved.' };
 	},
 
-	submitApplication: async ({ locals }) => {
+	submitApplication: async ({ request, locals }) => {
 		const user = locals.user!;
+		const form = await request.formData();
 		let application: Application | null = null;
 		try {
 			application = (await locals.pb
@@ -112,11 +119,59 @@ export const actions: Actions = {
 		if (application.status !== 'draft') {
 			return fail(400, { section: 'application', message: 'Application already submitted.' });
 		}
+		// Snapshot the fee AS PRESENTED — later price changes never alter it.
+		// (Pre-migration settings records return 0 for the unset field -> $35 initial.)
+		const settings = await locals.pb
+			.collection('settings')
+			.getList(1, 1, { sort: 'created' })
+			.catch(() => null);
+		const stored =
+			settings && settings.items.length > 0
+				? (settings.items[0] as unknown as UnitSettings).screening_fee_cents
+				: 0;
+		const feeCents = stored > 0 ? stored : 3500;
+		// Optional Zelle confirmation/reference — "payment reported", not "paid".
+		const ref = String(form.get('screening_payment_ref') ?? '').trim().slice(0, 200);
 		await locals.pb.collection('applications').update(application.id, {
 			status: 'submitted',
-			submitted: new Date().toISOString()
+			submitted: new Date().toISOString(),
+			screening_fee_cents: feeCents,
+			...(ref ? { screening_payment_ref: ref } : {})
 		});
 		return { section: 'application', message: 'Application submitted.' };
+	},
+
+	// Applicant reports their Zelle reference for the screening fee. Allowed after
+	// submission too (the fee is typically paid right after applying). Never sets
+	// screening_fee_confirmed — only management confirms receipt.
+	reportScreeningFee: async ({ request, locals }) => {
+		const user = locals.user!;
+		const form = await request.formData();
+		const ref = String(form.get('screening_payment_ref') ?? '').trim().slice(0, 200);
+		if (!ref) {
+			return fail(400, { section: 'screening-fee', message: 'Enter the Zelle confirmation or reference.' });
+		}
+		let application: Application | null = null;
+		try {
+			application = (await locals.pb
+				.collection('applications')
+				.getFirstListItem(`applicant = "${user.id}"`)) as unknown as Application;
+		} catch {
+			application = null;
+		}
+		if (!application || application.status === 'draft') {
+			return fail(400, { section: 'screening-fee', message: 'Submit your application first.' });
+		}
+		if (application.screening_fee_confirmed) {
+			return fail(400, { section: 'screening-fee', message: 'The fee is already confirmed — no change needed.' });
+		}
+		await locals.pb
+			.collection('applications')
+			.update(application.id, { screening_payment_ref: ref });
+		return {
+			section: 'screening-fee',
+			message: 'Payment reported. Management will confirm once the Zelle payment arrives.'
+		};
 	},
 
 	uploadDocument: async ({ request, locals }) => {

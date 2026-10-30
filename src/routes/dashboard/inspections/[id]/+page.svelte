@@ -15,6 +15,7 @@
 	import { Textarea } from '$lib/components/ui/textarea';
 	import * as Select from '$lib/components/ui/select';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
+	import { Badge } from '$lib/components/ui/badge';
 	import {
 		CONDITIONS,
 		INSPECTION_SECTIONS,
@@ -35,6 +36,7 @@
 		Download,
 		Flag,
 		KeyRound,
+		Mail,
 		PenLine,
 		Plus,
 		Printer,
@@ -288,13 +290,11 @@
 						id="manager_notes"
 						name="manager_notes"
 						rows={2}
-						value={data.inspection.manager_notes}
-					/>
-				</div>
-					</section>
-
-					<!-- Checklist -->
-					<section class="border-navy/10 flex flex-col gap-4 border-t pt-5">
+					value={data.privateNote}
+				/>
+			</div>
+			</section>
+				<section class="border-navy/10 flex flex-col gap-4 border-t pt-5">
 						<div>
 							<h2 class="text-navy text-lg font-semibold">Checklist</h2>
 							<p class="text-muted-foreground text-sm">
@@ -791,6 +791,54 @@
 				</form>
 			{/if}
 				</div>
+			</section>
+
+			<!-- Email confirmation delivery -->
+			<section class="border-navy/10 flex flex-col gap-4 border-t pt-5">
+				<div>
+					<h2 class="text-navy flex items-center gap-2 text-lg font-semibold">
+						<Mail class="text-ocean size-5" /> Email confirmation
+					</h2>
+					<p class="text-muted-foreground text-sm">
+						After the report is fully signed, a branded confirmation goes to the landlord and the
+						tenant account linked through the lease. File tokens and private manager notes are
+						never emailed.
+					</p>
+				</div>
+				{#if form?.section === 'notify'}
+					<p class="bg-turquoise/15 text-navy rounded-md px-3 py-2 text-sm">{form.message}</p>
+				{/if}
+				<div class="flex flex-col gap-1 text-sm">
+					<p class="font-medium">Intended recipients</p>
+					{#each data.recipientsPreview.recipients as r (r.role)}
+						<p class="text-muted-foreground">
+							{r.role === 'landlord' ? 'Landlord' : 'Tenant'} — {r.name}
+						</p>
+					{/each}
+					{#each data.recipientsPreview.limitations as lim (lim)}
+						<p class="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-amber-900">{lim}</p>
+					{/each}
+				</div>
+				{#if data.notifications.length > 0}
+					<ul class="divide-y rounded-md border text-sm">
+						{#each data.notifications as n (n.id)}
+							<li class="flex flex-wrap items-center justify-between gap-2 p-3">
+								<span>{n.name || (n.role === 'landlord' ? 'Landlord' : 'Tenant')} <span class="text-muted-foreground">({n.role})</span></span>
+								<span class="flex items-center gap-2">
+									<span class="text-muted-foreground text-xs">
+										{n.status === 'sent' && n.sent_at ? `sent ${formatDate(n.sent_at)}` : n.attempts > 0 ? `${n.attempts} attempt(s)` : 'not attempted'}
+									</span>
+									<Badge variant={n.status === 'sent' ? 'success' : n.status === 'failed' ? 'destructive' : 'warning'}>{n.status}</Badge>
+								</span>
+							</li>
+						{/each}
+					</ul>
+					{#if data.notifications.some((n) => n.status !== 'sent')}
+						<form method="POST" action="?/resendInspectionNotice" use:enhance class="self-start">
+							<Button type="submit" variant="outline" class="min-h-12">Retry pending/failed deliveries</Button>
+						</form>
+					{/if}
+				{/if}
 			</section>
 		</div>
 	</Card>
