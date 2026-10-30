@@ -5,7 +5,7 @@ import { maintenancePhotoError, MAINTENANCE_PHOTO, daysBetween } from '$lib/file
 import { buildNoticePdf } from '$lib/server/pdf';
 import { managementContact } from '$lib/server/messages';
 import { getLeaseCharges, summarizeLedger } from '$lib/server/billing';
-import type { Charge, DocRecord, Inspection, Lease, MaintenanceRequest, Message, MoveOutNotice, Payment, UnitSettings } from '$lib/types';
+import type { Charge, DocRecord, HelpVideo, Inspection, Lease, MaintenanceRequest, Message, MoveOutNotice, Payment, PropertyAccess, UnitSettings } from '$lib/types';
 
 export const load: PageServerLoad = async (event) => {
 	const user = requireRole(event, ['tenant']);
@@ -86,6 +86,36 @@ export const load: PageServerLoad = async (event) => {
 		settings = null;
 	}
 
+	let helpVideos: HelpVideo[] = [];
+	try {
+		helpVideos = (await pb
+			.collection('help_videos')
+			.getFullList({
+				filter: 'active = true && audience = "tenant" && placement = "tenant_dashboard"',
+				sort: 'created'
+			})) as unknown as HelpVideo[];
+	} catch {
+		helpVideos = [];
+	}
+
+	let propertyAccess: PropertyAccess[] = [];
+	try {
+		const allAccess = (await pb
+			.collection('property_access')
+			.getFullList({ sort: 'label' })) as unknown as PropertyAccess[];
+		const targetProperty = settings?.address || '';
+		const targetUnit = settings?.unit_name || '';
+		propertyAccess = allAccess.filter((entry) => {
+			if (!entry.active) return false;
+			if (entry.type === 'gate') {
+				return !entry.property || entry.property === targetProperty || entry.property === targetUnit;
+			}
+			return !entry.unit || entry.unit === targetUnit || entry.unit === targetProperty;
+		});
+	} catch {
+		propertyAccess = [];
+	}
+
 	return {
 		user,
 		lease,
@@ -98,6 +128,8 @@ export const load: PageServerLoad = async (event) => {
 		contact,
 		settings,
 		moveOutNotices,
+		helpVideos,
+		propertyAccess,
 		ledger: summarizeLedger(charges, payments)
 	};
 };
@@ -187,6 +219,46 @@ export const actions: Actions = {
 		if (!name) return fail(400, { section: 'contact', message: 'Name is required.' });
 		await locals.pb.collection('users').update(user.id, { name, phone });
 		return { section: 'contact', message: 'Contact details saved.' };
+	},
+
+	// Cleaning-receipt upload — same documents pipeline as the applicant uploader,
+	// kind fixed to 'receipt' so it lands in the move-out section.
+	uploadReceipt: async ({ request, locals }) => {
+		const user = locals.user!;
+		const form = await request.formData();
+		const files = form.getAll('files').filter((f): f is File => f instanceof File && f.size > 0);
+		if (files.length === 0) {
+			return fail(400, { section: 'receipt', message: 'Choose a receipt file first.' });
+		}
+		const ALLOWED = ['application/pdf', 'image/jpeg', 'image/png'];
+		for (const file of files) {
+			if (!ALLOWED.includes(file.type)) {
+				return fail(400, { section: 'receipt', message: `"${file.name}" is not allowed — only PDF, JPEG, or PNG files.` });
+			}
+			if (file.size > 10 * 1024 * 1024) {
+				return fail(400, { section: 'receipt', message: `"${file.name}" exceeds the 10 MB limit.` });
+			}
+		}
+		// Link the current lease when one exists (management billing views filter by lease).
+		let leaseId = '';
+		try {
+			const l = await locals.pb
+				.collection('leases')
+				.getFirstListItem(`tenant = "${user.id}"`, { sort: '-created' });
+			leaseId = l.id;
+		} catch {
+			// no lease — receipt still uploads without the link
+		}
+		for (const file of files) {
+			const payload = new FormData();
+			payload.append('owner', user.id);
+			payload.append('title', files.length > 1 ? `Cleaning receipt — ${file.name}` : 'Cleaning receipt');
+			payload.append('kind', 'receipt');
+			payload.append('file', file);
+			if (leaseId) payload.append('lease', leaseId);
+			await locals.pb.collection('documents').create(payload);
+		}
+		return { section: 'receipt', message: files.length === 1 ? 'Receipt uploaded.' : `${files.length} receipts uploaded.` };
 	},
 
 	// "Give move-out notice": stores the notice with a server timestamp plus a

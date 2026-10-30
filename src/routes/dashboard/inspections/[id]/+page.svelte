@@ -15,6 +15,7 @@
 	import { Textarea } from '$lib/components/ui/textarea';
 	import * as Select from '$lib/components/ui/select';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
+	import { Badge } from '$lib/components/ui/badge';
 	import {
 		CONDITIONS,
 		INSPECTION_SECTIONS,
@@ -35,6 +36,7 @@
 		Download,
 		Flag,
 		KeyRound,
+		Mail,
 		PenLine,
 		Plus,
 		Printer,
@@ -74,8 +76,10 @@
 	);
 
 	let finalized = $derived(data.inspection.stage === 'completed');
+	let hasAnySignature = $derived(!!(data.inspection.sig_landlord || data.inspection.sig_tenant));
 	let fullySigned = $derived(!!(data.inspection.sig_landlord && data.inspection.sig_tenant));
 	let forkedParam = $derived(page.url.searchParams.get('forked') === '1');
+	let revisedParam = $derived(page.url.searchParams.get('revised') === '1');
 
 	// Signature capture state
 	let landlordPad: SignaturePad | undefined = $state(undefined);
@@ -84,6 +88,7 @@
 	let tenantFile: HTMLInputElement | undefined = $state(undefined);
 	let dirty = $state(false);
 	let sigError = $state('');
+	let canCompleteInspection = $derived(fullySigned && !finalized && !dirty);
 
 	function markDirty(e: Event) {
 		// Typing in the signature card (names, etc.) must not mark content dirty.
@@ -204,6 +209,16 @@
 					preserved (read-only).{#if data.inspection.type === 'move_in'} Create the linked move-out
 						comparison from Inspection history.{/if}
 				</p>
+			{:else if hasAnySignature}
+				<div class="rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-sm">
+					<p class="text-navy font-medium">This signed inspection is locked for ordinary edits.</p>
+					<p class="text-navy/80 mt-1">
+						Create a revised inspection to update the content while preserving the signed version.
+					</p>
+					<form method="POST" action="?/createRevisionInspection" use:enhance class="mt-3">
+						<Button type="submit" class="min-h-12">Create revised inspection</Button>
+					</form>
+				</div>
 			{/if}
 
 			<form
@@ -214,7 +229,7 @@
 				oninput={markDirty}
 				class="contents"
 			>
-				<fieldset disabled={finalized} class="contents">
+				<fieldset disabled={finalized || hasAnySignature} class="contents">
 					<input type="hidden" name="checklist" value={JSON.stringify(checklist)} />
 
 					<!-- Inspection details -->
@@ -288,13 +303,11 @@
 						id="manager_notes"
 						name="manager_notes"
 						rows={2}
-						value={data.inspection.manager_notes}
-					/>
-				</div>
-					</section>
-
-					<!-- Checklist -->
-					<section class="border-navy/10 flex flex-col gap-4 border-t pt-5">
+					value={data.privateNote}
+				/>
+			</div>
+			</section>
+				<section class="border-navy/10 flex flex-col gap-4 border-t pt-5">
 						<div>
 							<h2 class="text-navy text-lg font-semibold">Checklist</h2>
 							<p class="text-muted-foreground text-sm">
@@ -357,7 +370,8 @@
 									>
 						{#each oItems as item (item.idx)}
 							<li>
-								{item.name} — {checklist[item.idx][editableSide].comment || 'no comment'}
+								<span class="text-navy">{item.name}</span>
+								<span class="text-red-700 dark:text-red-300"> — {checklist[item.idx][editableSide].comment || 'no comment'}</span>
 							</li>
 						{/each}
 					</ul>
@@ -499,6 +513,14 @@
 							</section>
 						{/each}
 
+						{#if !finalized && !hasAnySignature}
+							<section class="border-navy/10 flex flex-col gap-2 border-t pt-5">
+								<Button type="submit" formaction="?/saveDraft" variant="outline" class="min-h-12 w-full sm:max-w-xs">
+									Save draft
+								</Button>
+							</section>
+						{/if}
+
 						<!-- Follow-ups & deposit documentation -->
 						<section class="border-navy/10 flex flex-col gap-4 border-t pt-5">
 							<div>
@@ -616,6 +638,7 @@
 						</section>
 				</fieldset>
 				<!-- Signatures: inside the form but outside the (possibly disabled) content fieldset -->
+				{#if !finalized}
 				<section class="border-navy/10 flex flex-col gap-4 border-t pt-5" data-signing>
 					<div>
 						<h2 class="text-navy flex items-center gap-2 text-lg font-semibold">
@@ -646,6 +669,10 @@
 					<p class="text-navy rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm">
 						You have unsaved changes — save the inspection first so both people sign the exact
 						reviewed version.
+					</p>
+				{:else if hasAnySignature && !fullySigned}
+					<p class="text-navy rounded-md border border-ocean/30 bg-ocean/10 px-3 py-2 text-sm">
+						Waiting for the remaining signer: {data.inspection.sig_landlord ? 'Tenant' : 'Landlord'}.
 					</p>
 				{/if}
 
@@ -708,7 +735,7 @@
 								type="submit"
 								formaction={who === 'landlord' ? '?/signLandlord' : '?/signTenant'}
 								class="min-h-12"
-								disabled={dirty}
+								disabled={dirty || finalized}
 								onclick={(e) => submitSignature(e, constWho)}
 							>
 								Sign as {who === 'landlord' ? 'Landlord' : 'Tenant'}
@@ -725,22 +752,27 @@
 						{/if}
 					</div>
 				</section>
+				{/if}
 
 				<!-- Actions: below the tenant signature section, above Signed Copy -->
 				{#if !finalized}
 					<section class="border-navy/10 flex flex-col gap-2 border-t pt-5 sm:flex-row">
-						<Button type="submit" formaction="?/saveDraft" variant="outline" class="min-h-12 flex-1">
-							Save draft
-						</Button>
-						<Button type="submit" class="min-h-12 flex-1">Save inspection</Button>
+						{#if !hasAnySignature}
+							<Button type="submit" class="min-h-12 flex-1">Save inspection</Button>
+						{/if}
 						<Button
 							type="submit"
 							formaction="?/finalizeInspection"
 							variant="secondary"
 							class="min-h-12 flex-1"
-							title="Save and make this inspection read-only"
+							disabled={!canCompleteInspection}
+							title={
+								canCompleteInspection
+									? 'Save and make this inspection read-only'
+									: 'Both signatures must be saved before completion.'
+							}
 						>
-							Finalize
+							Complete inspection
 						</Button>
 					</section>
 				{/if}
@@ -791,6 +823,54 @@
 				</form>
 			{/if}
 				</div>
+			</section>
+
+			<!-- Email confirmation delivery -->
+			<section class="border-navy/10 flex flex-col gap-4 border-t pt-5">
+				<div>
+					<h2 class="text-navy flex items-center gap-2 text-lg font-semibold">
+						<Mail class="text-ocean size-5" /> Email confirmation
+					</h2>
+					<p class="text-muted-foreground text-sm">
+						After the report is fully signed, a branded confirmation goes to the landlord and the
+						tenant account linked through the lease. File tokens and private manager notes are
+						never emailed.
+					</p>
+				</div>
+				{#if form?.section === 'notify'}
+					<p class="bg-turquoise/15 text-navy rounded-md px-3 py-2 text-sm">{form.message}</p>
+				{/if}
+				<div class="flex flex-col gap-1 text-sm">
+					<p class="font-medium">Intended recipients</p>
+					{#each data.recipientsPreview.recipients as r (r.role)}
+						<p class="text-muted-foreground">
+							{r.role === 'landlord' ? 'Landlord' : 'Tenant'} — {r.name}
+						</p>
+					{/each}
+					{#each data.recipientsPreview.limitations as lim (lim)}
+						<p class="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-amber-900">{lim}</p>
+					{/each}
+				</div>
+				{#if data.notifications.length > 0}
+					<ul class="divide-y rounded-md border text-sm">
+						{#each data.notifications as n (n.id)}
+							<li class="flex flex-wrap items-center justify-between gap-2 p-3">
+								<span>{n.name || (n.role === 'landlord' ? 'Landlord' : 'Tenant')} <span class="text-muted-foreground">({n.role})</span></span>
+								<span class="flex items-center gap-2">
+									<span class="text-muted-foreground text-xs">
+										{n.status === 'sent' && n.sent_at ? `sent ${formatDate(n.sent_at)}` : n.attempts > 0 ? `${n.attempts} attempt(s)` : 'not attempted'}
+									</span>
+									<Badge variant={n.status === 'sent' ? 'success' : n.status === 'failed' ? 'destructive' : 'warning'}>{n.status}</Badge>
+								</span>
+							</li>
+						{/each}
+					</ul>
+					{#if data.notifications.some((n) => n.status !== 'sent')}
+						<form method="POST" action="?/resendInspectionNotice" use:enhance class="self-start">
+							<Button type="submit" variant="outline" class="min-h-12">Retry pending/failed deliveries</Button>
+						</form>
+					{/if}
+				{/if}
 			</section>
 		</div>
 	</Card>

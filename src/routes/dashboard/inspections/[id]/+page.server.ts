@@ -1,9 +1,14 @@
 import { fail, redirect, type Actions } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { requireRole } from '$lib/server/guard';
-import { parseChecklist, parseDeductions, type ChecklistItem } from '$lib/inspection';
+import { parseChecklist, parseDeductions, signaturesCoverSnapshot, type ChecklistItem } from '$lib/inspection';
 import { parseMoneyToCents } from '$lib/format';
-import type { DocRecord, Inspection } from '$lib/types';
+import { buildInspectionPdf } from '$lib/server/pdf';
+import { notifySignedInspection, recipientsPreview, retryFailedNotifications } from '$lib/server/inspection-notify';
+import { appBaseUrl, isExplicitProduction } from '$lib/server/app-url';
+import { createSuperuserClient } from '$lib/server/pb';
+import { PUBLIC_APP_URL } from '$app/env/public';
+import type { DocRecord, Inspection, InspectionNotification } from '$lib/types';
 
 const ALLOWED_FILE_TYPES = ['application/pdf', 'image/jpeg', 'image/png'];
 
@@ -20,6 +25,31 @@ async function loadDocMap(pb: App.Locals['pb'], inspectionId: string): Promise<R
 	return Object.fromEntries(docs.map((d) => [d.id, d]));
 }
 
+/** Private manager annotations live in the staff-only collection — the
+ * inspection record itself is tenant-visible, so they can never live on it. */
+async function loadPrivateNote(pb: App.Locals['pb'], inspectionId: string): Promise<string> {
+	const note = await pb
+		.collection('inspection_private_notes')
+		.getFirstListItem(`inspection = "${inspectionId}"`)
+		.catch(() => null);
+	return (note as { body?: string } | null)?.body ?? '';
+}
+
+async function upsertPrivateNote(pb: App.Locals['pb'], inspectionId: string, body: string, userId: string): Promise<void> {
+	const existing = await pb
+		.collection('inspection_private_notes')
+		.getFirstListItem(`inspection = "${inspectionId}"`)
+		.catch(() => null);
+	if (existing) {
+		if ((existing as { body?: string }).body !== body) {
+			await pb.collection('inspection_private_notes').update(existing.id, { body });
+		}
+		return;
+	}
+	if (!body) return; // no empty notes
+	await pb.collection('inspection_private_notes').create({ inspection: inspectionId, body, created_by: userId });
+}
+
 export const load: PageServerLoad = async (event) => {
 	const user = requireRole(event, ['owner', 'admin']);
 	const { pb } = event.locals;
@@ -33,17 +63,41 @@ export const load: PageServerLoad = async (event) => {
 		redirect(303, '/dashboard/inspections');
 	}
 
+	// Delivery rows shown to management WITHOUT email addresses (the staff-only
+	// collection still stores them for retries).
+	const notificationRows = (await pb
+		.collection('inspection_notifications')
+		.getFullList({ filter: `inspection = "${inspection.id}"`, sort: 'created', expand: 'recipient' })
+		.then((r) => r as unknown as InspectionNotification[])
+		.catch(() => [] as InspectionNotification[])).map((n) => ({
+			id: n.id,
+			role: n.role,
+			status: n.status,
+			attempts: n.attempts,
+			sent_at: n.sent_at,
+			name: n.expand?.recipient?.name ?? ''
+		}));
+
 	return {
 		user,
 		inspection,
 		checklist: parseChecklist(inspection.checklist),
 		deductions: parseDeductions(inspection.proposed_deductions),
-		documents: await loadDocMap(pb, inspection.id)
+		documents: await loadDocMap(pb, inspection.id),
+		privateNote: await loadPrivateNote(pb, inspection.id),
+		notifications: notificationRows,
+		// Intended recipients by NAME only — emails are resolved privilegedly at
+		// send time and never enter this loader.
+		recipientsPreview: recipientsPreview({
+			landlordName: inspection.expand?.created_by?.name ?? null,
+			tenantName: inspection.expand?.lease?.expand?.tenant?.name ?? null,
+			tenantNames: inspection.tenant_names
+		})
 	};
 };
 
 /** Canonical content key — detects real content changes (ignores stage). */
-function contentKeyOf(i: Inspection): string {
+function contentKeyOf(i: Inspection, noteBody: string): string {
 	return JSON.stringify({
 		address: i.address,
 		unit: i.unit,
@@ -54,14 +108,18 @@ function contentKeyOf(i: Inspection): string {
 		date: String(i.date ?? '').slice(0, 10),
 		type: i.type,
 		notes: i.notes,
-		manager_notes: i.manager_notes,
+		manager_notes: noteBody,
 		checklist: parseChecklist(i.checklist),
 		proposed_deductions: parseDeductions(i.proposed_deductions)
 	});
 }
 
 /** Shared save path for Save draft / Save inspection. */
-async function save(event: Parameters<Actions[string]>[0], forceDraft: boolean) {
+async function save(
+	event: Parameters<Actions[string]>[0],
+	forceDraft: boolean,
+	options: { allowSigned?: boolean } = {}
+) {
 	const { request, locals } = event;
 	const id = event.params.id!;
 	const user = locals.user!;
@@ -72,6 +130,14 @@ async function save(event: Parameters<Actions[string]>[0], forceDraft: boolean) 
 		existing = (await locals.pb.collection('inspections').getOne(id)) as unknown as Inspection;
 	} catch {
 		return fail(404, { section: 'inspection', message: 'Inspection not found.' });
+	}
+
+	const hasSignature = !!(existing.sig_landlord || existing.sig_tenant);
+	if (hasSignature && !options.allowSigned) {
+		return fail(400, {
+			section: 'inspection',
+			message: 'This inspection already has a signature. Create a revised inspection to continue editing.'
+		});
 	}
 
 	let checklist: ChecklistItem[];
@@ -96,6 +162,8 @@ async function save(event: Parameters<Actions[string]>[0], forceDraft: boolean) 
 	);
 
 	const occupancy = String(form.get('occupancy') ?? '');
+	// Private annotations go to the staff-only collection, never onto the record.
+	const privateNoteBody = String(form.get('manager_notes') ?? '').trim();
 	const data = {
 		address: String(form.get('address') ?? '').trim(),
 		unit: String(form.get('unit') ?? '').trim(),
@@ -107,7 +175,7 @@ async function save(event: Parameters<Actions[string]>[0], forceDraft: boolean) 
 		type: String(form.get('type') ?? 'move_in'),
 		stage: forceDraft ? 'draft' : String(form.get('stage') ?? (existing.stage || 'draft')),
 		notes: String(form.get('notes') ?? '').trim(),
-		manager_notes: String(form.get('manager_notes') ?? '').trim(),
+		manager_notes: '', // hard rule: private notes never touch the tenant-visible record
 		checklist,
 		proposed_deductions
 	};
@@ -116,58 +184,10 @@ async function save(event: Parameters<Actions[string]>[0], forceDraft: boolean) 
 		return fail(400, { section: 'inspection', message: 'Property address and unit are required.' });
 	}
 
-	// Signed-version protection: editing content after any signature exists
-	// creates a NEW unsigned revision; the signed record, its signatures, and
-	// its signed copy are never overwritten.
-	const hasSignature = !!(existing.sig_landlord || existing.sig_tenant);
+	// Signed records are protected: ordinary editing is blocked until a manager
+	// explicitly creates a new unsigned revision.
 	let targetId = id;
-	let forked = false;
-	const incomingKey = JSON.stringify({
-		address: data.address,
-		unit: data.unit,
-		tenant_names: data.tenant_names,
-		occupancy: data.occupancy,
-		move_in_date: data.move_in_date.slice(0, 10),
-		move_out_date: data.move_out_date.slice(0, 10),
-		date: data.date.slice(0, 10),
-		type: data.type,
-		notes: data.notes,
-		manager_notes: data.manager_notes,
-		checklist,
-		proposed_deductions
-	});
-	if (hasSignature && incomingKey !== contentKeyOf(existing)) {
-		try {
-			const copy = await locals.pb.collection('inspections').create({
-				lease: existing.lease || '',
-				date: data.date,
-				type: data.type,
-				notes: data.notes,
-				address: data.address,
-				unit: data.unit,
-				tenant_names: data.tenant_names,
-				occupancy: data.occupancy,
-				move_in_date: data.move_in_date,
-				move_out_date: data.move_out_date,
-				stage: 'draft',
-				created_by: user.id,
-				checklist,
-				proposed_deductions,
-				manager_notes: data.manager_notes,
-				revision_of: id
-			});
-			targetId = copy.id;
-			forked = true;
-			data.stage = 'draft';
-		} catch (e) {
-			return fail(500, {
-				section: 'inspection',
-				message: `Could not create an unsigned revision: ${pbError(e)}. Nothing was saved.`
-			});
-		}
-	}
-
-	if (!forked && existing.stage === 'completed') {
+	if (existing.stage === 'completed') {
 		return fail(400, {
 			section: 'inspection',
 			message: 'This inspection is finalized and can no longer be edited.'
@@ -227,8 +247,8 @@ async function save(event: Parameters<Actions[string]>[0], forceDraft: boolean) 
 
 	try {
 		// 'signed' is only ever granted by the signature flow, never by a form post.
-		if (data.stage === 'signed' && (forked || existing.stage !== 'signed')) {
-			data.stage = forked ? 'draft' : 'in_progress';
+		if (data.stage === 'signed' && existing.stage !== 'signed') {
+			data.stage = 'in_progress';
 		}
 		await locals.pb.collection('inspections').update(targetId, data);
 	} catch (e) {
@@ -248,9 +268,14 @@ async function save(event: Parameters<Actions[string]>[0], forceDraft: boolean) 
 		return fail(500, { section: 'inspection', message: `Save could not be confirmed: ${pbError(e)}` });
 	}
 
-	if (forked) {
-		// The signed original is preserved; continue on the new unsigned revision.
-		redirect(303, `/dashboard/inspections/${targetId}?forked=1`);
+	// Private manager annotations persist to the staff-only collection (never the record).
+	try {
+		await upsertPrivateNote(locals.pb, targetId, privateNoteBody, user.id);
+	} catch (e) {
+		return fail(500, {
+			section: 'inspection',
+			message: `Inspection saved, but the private note could not be saved: ${pbError(e)}`
+		});
 	}
 
 	return {
@@ -273,10 +298,12 @@ async function sign(event: Parameters<Actions[string]>[0], who: 'landlord' | 'te
 		return fail(404, { section: 'signatures', message: 'Inspection not found.' });
 	}
 
-	if (existing.stage === 'signed') {
+	if (existing.stage === 'signed' || existing.stage === 'completed') {
 		return fail(400, {
 			section: 'signatures',
-			message: 'This inspection is already fully signed. Editing content creates a new unsigned revision.'
+			message: existing.stage === 'completed'
+				? 'This inspection is already completed and read-only.'
+				: 'This inspection is already fully signed. Create a revised inspection to edit the content.'
 		});
 	}
 
@@ -332,7 +359,18 @@ async function sign(event: Parameters<Actions[string]>[0], who: 'landlord' | 'te
 			return fail(500, { section: 'signatures', message: 'Signature save could not be confirmed.' });
 		}
 		let both = false;
+		let deliveryNote = '';
 		if (fresh.sig_landlord && fresh.sig_tenant) {
+			// Finalization gate: both signatures must apply to the same saved
+			// content. Edits after a signature fork a new revision, so this is
+			// structural — the check exists to fail loudly rather than ever sign
+			// mismatched content.
+			if (!signaturesCoverSnapshot(fresh)) {
+				return fail(400, {
+					section: 'signatures',
+					message: 'Content changed between signatures — save a fresh revision and sign again.'
+				});
+			}
 			const signed_snapshot = {
 				address: fresh.address,
 				unit: fresh.unit,
@@ -347,21 +385,62 @@ async function sign(event: Parameters<Actions[string]>[0], who: 'landlord' | 'te
 				proposed_deductions: parseDeductions(fresh.proposed_deductions),
 				signed_completed_at: new Date().toISOString()
 			};
+
+			// Persist the final report PDF FIRST — the signed stage is set only
+			// after signatures, snapshot, and the PDF are all durably stored.
+			const checklistNow = parseChecklist(fresh.checklist);
+			const pdf = buildInspectionPdf({
+				address: fresh.address,
+				unit: fresh.unit,
+				type: fresh.type,
+				date: String(fresh.date).slice(0, 10),
+				tenantNames: fresh.tenant_names,
+				itemsOk: checklistNow.filter((c) => !c.flagged).length,
+				itemsFlagged: checklistNow.filter((c) => c.flagged).length,
+				landlordName: fresh.sig_landlord_name,
+				landlordAt: fresh.sig_landlord_at,
+				tenantName: fresh.sig_tenant_name,
+				tenantAt: fresh.sig_tenant_at,
+				signedCompletedAt: signed_snapshot.signed_completed_at
+			});
+			const pdfFd = new FormData();
+			pdfFd.append('final_pdf', new File([pdf as unknown as BlobPart], 'signed-report.pdf', { type: 'application/pdf' }));
+			await locals.pb.collection('inspections').update(id, pdfFd);
+
 			await locals.pb.collection('inspections').update(id, { stage: 'signed', signed_snapshot });
-			fresh = (await locals.pb.collection('inspections').getOne(id)) as unknown as Inspection;
-			both = fresh.stage === 'signed' && !!fresh.signed_snapshot;
+			fresh = (await locals.pb
+				.collection('inspections')
+				.getOne(id, { expand: 'lease,lease.tenant,created_by' })) as unknown as Inspection;
+			both = fresh.stage === 'signed' && !!fresh.signed_snapshot && !!fresh.final_pdf;
 			if (!both) {
 				return fail(500, {
 					section: 'signatures',
-					message: 'Both signatures saved, but the signed snapshot could not be confirmed.'
+					message: 'Both signatures saved, but the signed snapshot or final PDF could not be confirmed.'
 				});
+			}
+
+			// Email confirmation — after signing is fully persisted. A delivery
+			// failure is recorded per recipient and never undoes the signing.
+			// Recipient resolution runs with the superuser client (server-side record
+			// access; per-record emailVisibility doesn't gate it).
+			try {
+				const suPb = await createSuperuserClient();
+				const delivery = await notifySignedInspection(
+					suPb,
+					fresh,
+					appBaseUrl(PUBLIC_APP_URL, { production: isExplicitProduction() })
+				);
+				deliveryNote = ` Email confirmation: ${delivery.sent} sent, ${delivery.pending} pending (email disabled), ${delivery.failed} failed.`;
+				if (delivery.limitations.length > 0) deliveryNote += ` Note: ${delivery.limitations.join(' ')}`;
+			} catch {
+				deliveryNote = ' Email confirmation could not be attempted — the signed report is unaffected.';
 			}
 		}
 		return {
 			section: 'signatures',
 			message:
 				`${who === 'landlord' ? 'Landlord' : 'Tenant'} signature saved.` +
-				(both ? ' Both signatures captured — the report is fully signed.' : '')
+				(both ? ' Both signatures captured — the report is fully signed.' + deliveryNote : '')
 		};
 	} catch (e) {
 		return fail(500, { section: 'signatures', message: `Could not confirm the signature: ${pbError(e)}` });
@@ -383,6 +462,68 @@ export const actions: Actions = {
 			return fail(403, { section: 'inspection', message: 'Management access required.' });
 		}
 		return save(event, false);
+	},
+
+	createRevisionInspection: async (event) => {
+		const user = event.locals.user;
+		if (!user || (user.role !== 'owner' && user.role !== 'admin')) {
+			return fail(403, { section: 'inspection', message: 'Management access required.' });
+		}
+		const id = event.params.id!;
+		const current = (await event.locals.pb.collection('inspections').getOne(id).catch(() => null)) as unknown as Inspection | null;
+		if (!current) return fail(404, { section: 'inspection', message: 'Inspection not found.' });
+		if (current.stage === 'completed') {
+			return fail(400, {
+				section: 'inspection',
+				message: 'This inspection is already completed and read-only.'
+			});
+		}
+		if (!(current.sig_landlord || current.sig_tenant)) {
+			return fail(400, {
+				section: 'inspection',
+				message: 'This inspection has no signed version yet. Save edits directly.'
+			});
+		}
+		try {
+			const revision = await event.locals.pb.collection('inspections').create({
+				lease: current.lease || '',
+				date: current.date,
+				type: current.type,
+				notes: current.notes,
+				address: current.address,
+				unit: current.unit,
+				tenant_names: current.tenant_names,
+				occupancy: current.occupancy,
+				move_in_date: current.move_in_date,
+				move_out_date: current.move_out_date,
+				stage: 'draft',
+				created_by: user.id,
+				checklist: current.checklist,
+				proposed_deductions: current.proposed_deductions,
+				manager_notes: '',
+				revision_of: id,
+				sig_landlord: '',
+				sig_landlord_name: '',
+				sig_landlord_at: '',
+				sig_landlord_meta: '',
+				sig_tenant: '',
+				sig_tenant_name: '',
+				sig_tenant_at: '',
+				sig_tenant_meta: '',
+				signed_snapshot: null,
+				final_pdf: '',
+				signed_copy: '',
+			});
+			throw redirect(303, `/dashboard/inspections/${revision.id}?revised=1`);
+		} catch (e) {
+			if (typeof e === 'object' && e && 'status' in e && 'location' in e) {
+				throw e;
+			}
+			return fail(500, {
+				section: 'inspection',
+				message: `Could not create a revised inspection: ${pbError(e)}`
+			});
+		}
 	},
 
 	removeItemPhoto: async ({ request, locals, params }) => {
@@ -428,8 +569,21 @@ export const actions: Actions = {
 			return fail(403, { section: 'inspection', message: 'Management access required.' });
 		}
 		const id = event.params.id!;
+		const current = (await event.locals.pb.collection('inspections').getOne(id).catch(() => null)) as unknown as Inspection | null;
+		if (!current) {
+			return fail(404, { section: 'inspection', message: 'Inspection not found.' });
+		}
+		if (current.stage === 'completed') {
+			return fail(400, { section: 'inspection', message: 'This inspection is already completed and read-only.' });
+		}
+		if (!(current.sig_landlord && current.sig_tenant)) {
+			return fail(400, {
+				section: 'inspection',
+				message: 'Both signatures must be saved before the inspection can be completed.'
+			});
+		}
 		// Finalizing also saves the current form contents so nothing is lost.
-		const result = await save(event, false);
+		const result = await save(event, false, { allowSigned: true });
 		if (result && typeof result === 'object' && 'status' in result) return result;
 		try {
 			await event.locals.pb.collection('inspections').update(id, { stage: 'completed' });
@@ -477,5 +631,30 @@ export const actions: Actions = {
 	},
 
 	signLandlord: async (event) => sign(event, 'landlord'),
-	signTenant: async (event) => sign(event, 'tenant')
+	signTenant: async (event) => sign(event, 'tenant'),
+
+	// Retry pending/failed email deliveries for this signed inspection. Rows
+	// marked sent are never touched — no duplicate emails.
+	resendInspectionNotice: async (event) => {
+		const user = event.locals.user;
+		if (!user || (user.role !== 'owner' && user.role !== 'admin')) {
+			return fail(403, { section: 'notify', message: 'Management access required.' });
+		}
+		const id = event.params.id!;
+		const inspection = (await event.locals.pb
+			.collection('inspections')
+			.getOne(id, { expand: 'lease,lease.tenant,created_by' })
+			.catch(() => null)) as unknown as Inspection | null;
+		if (!inspection) return fail(404, { section: 'notify', message: 'Inspection not found.' });
+		const suPb = await createSuperuserClient();
+		const result = await retryFailedNotifications(
+			suPb,
+			inspection,
+			appBaseUrl(PUBLIC_APP_URL, { production: isExplicitProduction() })
+		);
+		return {
+			section: 'notify',
+			message: `Retried ${result.retried} deliver${result.retried === 1 ? 'y' : 'ies'}: ${result.sent} sent, ${result.failed} failed.`
+		};
+	}
 };

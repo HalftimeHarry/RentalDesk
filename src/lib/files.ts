@@ -19,6 +19,12 @@ export function docUrl(recordId: string, filename: string): string {
 	return `/files/documents/${encodeURIComponent(recordId)}/${encodeURIComponent(filename)}`;
 }
 
+/** App route for protected help-video media, proxied through the app so the
+ * browser stays on the same origin and the record's audience rules remain enforced. */
+export function helpVideoUrl(recordId: string, filename: string): string {
+	return `/files/help_videos/${encodeURIComponent(recordId)}/${encodeURIComponent(filename)}`;
+}
+
 /** True when a stored filename is a previewable image. */
 export function isImageFile(filename: string): boolean {
 	return /\.(jpe?g|png)$/i.test(filename);

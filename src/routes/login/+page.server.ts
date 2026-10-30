@@ -20,8 +20,19 @@ export const actions: Actions = {
 
 		try {
 			await locals.pb.collection('users').authWithPassword(email, password);
-		} catch {
-			return fail(400, { message: 'Invalid email or password.', email });
+		} catch (e) {
+			// PocketBase answers 400 for bad credentials; anything else (network
+			// failure, unreachable/misconfigured backend) must surface differently
+			// so configuration problems are not mistaken for typos.
+			const status = (e as { status?: number })?.status ?? 0;
+			if (status === 400) {
+				return fail(400, { message: 'Invalid email or password.', email });
+			}
+			console.error('Login backend failure, status', status);
+			return fail(502, {
+				message: 'Could not reach the account server. Please try again in a moment.',
+				email
+			});
 		}
 
 		// locals.user was populated by hooks BEFORE this action ran — use the

@@ -16,14 +16,19 @@
 	import * as Select from '$lib/components/ui/select';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import MessageThread from '$lib/components/MessageThread.svelte';
+	import ApplicantNextSteps from '$lib/components/ApplicantNextSteps.svelte';
 	import { docUrl, isImageFile } from '$lib/files';
-	import { formatDate, toDateInput } from '$lib/format';
+	import { formatDate, formatMoney, toDateInput } from '$lib/format';
 	import { FileText, Trash2, User, ClipboardList, MessageSquare } from '@lucide/svelte';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
 	let application = $derived(data.application);
 	let editable = $derived(!application || application.status === 'draft');
+	// Fee shown pre-submission is the current settings value; the submitted
+	// application stores the amount that was actually presented.
+	// (Pre-migration settings records return 0 for the unset field -> $35 initial.)
+	let feeCents = $derived((data.settings?.screening_fee_cents ?? 0) > 0 ? data.settings!.screening_fee_cents : 3500);
 
 	const kindLabels: Record<string, string> = {
 		identification: 'Identification',
@@ -44,6 +49,8 @@
 		<h1 class="text-2xl font-bold tracking-tight text-white drop-shadow-sm">Applicant dashboard</h1>
 		<p class="text-white/85 drop-shadow-sm">Welcome, {data.user.name || data.user.email}.</p>
 	</div>
+
+	<ApplicantNextSteps application={data.application} documents={data.documents} />
 
 	<div class="grid gap-6 lg:grid-cols-2">
 		<!-- Contact details -->
@@ -183,11 +190,75 @@
 				</form>
 			</CardContent>
 			{#if editable && application}
-				<CardFooter class="justify-between gap-2 border-t pt-4">
-					<span class="text-muted-foreground text-sm">Ready? Submit for review.</span>
-					<form method="POST" action="?/submitApplication" use:enhance>
-						<Button type="submit" size="sm">Submit application</Button>
-					</form>
+				<CardFooter class="flex-col items-stretch gap-3 border-t pt-4">
+					<div class="flex flex-col gap-1 rounded-lg border p-3 text-sm">
+						<p class="font-medium">Credit-check fee: {formatMoney(feeCents)}</p>
+						{#if data.settings?.zelle_instructions}
+							<p class="whitespace-pre-line">Zelle: {data.settings.zelle_instructions}</p>
+						{/if}
+						<p>Include your full name and “credit check” in the payment memo.</p>
+						<p class="text-muted-foreground text-xs">
+							Entering a reference means “payment reported” — management confirms receipt before
+							screening proceeds.
+						</p>
+					</div>
+					<div class="flex flex-wrap items-end justify-between gap-3">
+						<span class="text-muted-foreground text-sm">Ready? Submit for review.</span>
+						<form
+							method="POST"
+							action="?/submitApplication"
+							use:enhance
+							class="flex flex-1 flex-wrap items-end justify-end gap-2"
+						>
+							<Input
+								name="screening_payment_ref"
+								placeholder="Zelle confirmation (optional)"
+								class="max-w-56"
+							/>
+							<Button type="submit" size="sm">Submit application</Button>
+						</form>
+					</div>
+				</CardFooter>
+			{:else if application}
+				<CardFooter class="flex-col items-stretch gap-3 border-t pt-4">
+					<div class="flex flex-col gap-2 rounded-lg border p-3 text-sm">
+						<p class="font-medium">
+							Credit-check fee: {formatMoney(application.screening_fee_cents || feeCents)}
+						</p>
+						{#if application.screening_fee_confirmed}
+							<p class="font-medium text-emerald-700">Received — thank you.</p>
+						{:else}
+							{#if application.screening_payment_ref}
+								<p>
+									Payment reported (ref: {application.screening_payment_ref}) — management will
+									confirm once the Zelle payment arrives.
+								</p>
+						{:else}
+								{#if data.settings?.zelle_instructions}
+									<p class="whitespace-pre-line">Zelle: {data.settings.zelle_instructions}</p>
+								{/if}
+								<p>Include your full name and “credit check” in the payment memo.</p>
+							{/if}
+							{#if form?.section === 'screening-fee'}
+								<p class="bg-muted rounded-md px-3 py-2 text-sm">{form.message}</p>
+							{/if}
+							<form
+								method="POST"
+								action="?/reportScreeningFee"
+								use:enhance
+								class="flex flex-wrap items-end gap-2"
+							>
+								<Input
+									name="screening_payment_ref"
+									placeholder="Zelle confirmation or reference"
+									required
+									class="max-w-56"
+									value={application.screening_payment_ref}
+								/>
+								<Button type="submit" size="sm" variant="outline">Report payment</Button>
+							</form>
+						{/if}
+					</div>
 				</CardFooter>
 			{/if}
 			{#if application?.status === 'denied' && application.review_notes}

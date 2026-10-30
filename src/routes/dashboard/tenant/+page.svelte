@@ -26,15 +26,21 @@
 	import MoveOutNoticeDialog from '$lib/components/MoveOutNoticeDialog.svelte';
 	import LeaseDetailsDialog from '$lib/components/LeaseDetailsDialog.svelte';
 	import BillingStatement from '$lib/components/BillingStatement.svelte';
+	import HelpVideoDialog from '$lib/components/HelpVideoDialog.svelte';
 	import { docUrl, isImageFile, maintenancePhotoError, MAINTENANCE_PHOTO, noticePdfUrl, daysBetween } from '$lib/files';
 	import { formatDate, formatMoney } from '$lib/format';
 	import { billStatus, monthLabel } from '$lib/billing';
-	import type { Charge, DocRecord, MoveOutNotice } from '$lib/types';
-	import { Eye, FileText, House, Receipt, Wallet, ClipboardCheck, Wrench, MessageSquare, ShieldCheck, Zap, Check, Copy, HandCoins, Camera, LogOut, X } from '@lucide/svelte';
+	import type { Charge, DocRecord, MoveOutNotice, PropertyAccess } from '$lib/types';
+	import { Eye, FileText, House, Receipt, Wallet, ClipboardCheck, Wrench, MessageSquare, ShieldCheck, Zap, Check, Copy, HandCoins, Camera, LogOut, X, Play } from '@lucide/svelte';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 	let lease = $derived(data.lease);
 	let leaseOpen = $state(false);
+	let dashboardOverviewOpen = $state(false);
+	let dashboardOverviewVideo = $derived(data.helpVideos.find((v) => v.placement === 'tenant_dashboard') ?? null);
+	let propertyAccessVisible = $state<Record<string, boolean>>({});
+	let propertyAccessCopied = $state<Record<string, boolean>>({});
+	let cleaningReceipts = $derived(data.documents.filter((d) => d.kind === 'receipt'));
 
 	// Move-out notice dialog (null = new notice; a notice = correction/new version).
 	let noticeOpen = $state(false);
@@ -58,6 +64,19 @@
 			zelleCopyTimer = setTimeout(() => (zelleCopied = false), 2000);
 		} catch {
 			// Clipboard unavailable (e.g. insecure context) — leave the button unchanged.
+		}
+	}
+
+	async function copyPropertyAccess(entry: PropertyAccess) {
+		const text = `${entry.label}\nCode: ${entry.code}\nInstructions: ${entry.instructions || 'None provided.'}`;
+		try {
+			await navigator.clipboard.writeText(text);
+			propertyAccessCopied[entry.id] = true;
+			window.setTimeout(() => {
+				propertyAccessCopied[entry.id] = false;
+			}, 1800);
+		} catch {
+			propertyAccessCopied[entry.id] = false;
 		}
 	}
 
@@ -315,10 +334,67 @@
 </svelte:head>
 
 <div class="flex flex-col gap-6">
-	<div>
-		<h1 class="text-2xl font-bold tracking-tight text-white drop-shadow-sm">Tenant dashboard</h1>
-		<p class="text-white/85 drop-shadow-sm">Welcome, {data.user.name || data.user.email}.</p>
+	<div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+		<div>
+			<h1 class="text-2xl font-bold tracking-tight text-white drop-shadow-sm">Tenant dashboard</h1>
+			<p class="text-white/85 drop-shadow-sm">Welcome, {data.user.name || data.user.email}.</p>
+		</div>
+		{#if dashboardOverviewVideo}
+			<Button variant="outline" size="sm" class="min-h-11 self-start" onclick={() => (dashboardOverviewOpen = true)}>
+				<Play class="size-4" /> Watch dashboard overview
+			</Button>
+		{/if}
 	</div>
+
+	{#if dashboardOverviewVideo}
+		<HelpVideoDialog bind:open={dashboardOverviewOpen} video={dashboardOverviewVideo} />
+	{/if}
+
+	{#if data.propertyAccess.length > 0}
+		<Card>
+			<CardHeader class="pb-3">
+				<CardTitle class="flex items-center gap-2">
+					<ShieldCheck class="text-ocean size-5" /> Property access
+				</CardTitle>
+				<CardDescription>Current gate and lockbox details for this unit.</CardDescription>
+			</CardHeader>
+			<CardContent class="space-y-3">
+				{#each data.propertyAccess as entry (entry.id)}
+					<div class="rounded-lg border border-slate-200 bg-slate-50 p-3">
+						<div class="flex items-center justify-between gap-2">
+							<div>
+								<p class="font-medium text-slate-900">{entry.label}</p>
+								<p class="text-xs text-slate-500">
+									{entry.type === 'gate' ? 'Gate access' : 'Door lockbox'}
+									{entry.type === 'gate' && entry.property ? ` · ${entry.property}` : ''}
+									{entry.type === 'door_lockbox' && entry.unit ? ` · ${entry.unit}` : ''}
+								</p>
+							</div>
+							<Button type="button" variant="outline" size="sm" class="min-h-9" onclick={() => (propertyAccessVisible[entry.id] = !propertyAccessVisible[entry.id])}>
+								{propertyAccessVisible[entry.id] ? 'Hide' : 'Show'} code
+							</Button>
+						</div>
+						<div class="mt-2 flex items-center gap-2 text-sm">
+							<span class="text-slate-600">Code:</span>
+							<span class="rounded border border-slate-200 bg-white px-2 py-1 font-mono">
+								{propertyAccessVisible[entry.id] ? entry.code : '••••'}
+							</span>
+							<Button type="button" variant="ghost" size="sm" class="min-h-9 px-2" onclick={() => copyPropertyAccess(entry)}>
+								{#if propertyAccessCopied[entry.id]}
+									<Check class="size-4" />
+								{:else}
+									<Copy class="size-4" />
+								{/if}
+							</Button>
+						</div>
+						{#if entry.instructions}
+							<p class="mt-2 text-sm text-slate-600">{entry.instructions}</p>
+						{/if}
+					</div>
+				{/each}
+			</CardContent>
+		</Card>
+	{/if}
 
 	{#if !lease}
 		<Card>
@@ -544,6 +620,63 @@
 						{/each}
 					</ul>
 				{/if}
+
+				<!-- Move-out cleaning expectations + cleaning-receipt upload -->
+				<div class="mt-2 flex flex-col gap-3 rounded-lg border p-4">
+					<p class="flex items-center gap-2 text-sm font-medium">
+						<Receipt class="text-ocean size-4" /> Move-out cleaning
+					</p>
+					<p class="text-sm">
+						Please return the property to the same level of cleanliness as when you moved in,
+						allowing for ordinary wear and tear. Arrange and pay for any cleaning necessary to
+						meet that standard.
+					</p>
+					<p class="text-sm">
+						Cecilia’s Cleaning prepared the property before your move-in. If you would like to
+						use the same service, contact Cecilia at
+						<a class="text-ocean font-medium underline-offset-4 hover:underline" href="tel:+16195916300">619-591-6300</a>.
+						You may choose another cleaning service.
+					</p>
+					<p class="text-sm">
+						If you use a professional cleaner, please upload the receipt here when available.
+					</p>
+					{#if form?.section === 'receipt'}
+						<p class="bg-turquoise/15 text-navy rounded-md px-3 py-2 text-sm">{form.message}</p>
+					{/if}
+					{#if cleaningReceipts.length > 0}
+						<ul class="flex flex-col gap-1 text-sm">
+							{#each cleaningReceipts as r (r.id)}
+								<li>
+									<a
+										class="text-ocean underline-offset-4 hover:underline"
+										href={docUrl(r.id, r.file)}
+										target="_blank"
+										rel="noreferrer">{r.title}</a
+									>
+									<span class="text-muted-foreground"> · {formatDate(r.created)}</span>
+								</li>
+							{/each}
+						</ul>
+					{/if}
+					<form
+						method="POST"
+						action="?/uploadReceipt"
+						enctype="multipart/form-data"
+						class="flex flex-col gap-3 sm:flex-row sm:items-end"
+					>
+						<div class="flex flex-1 flex-col gap-2">
+							<Label for="cleaning-receipt">Cleaning receipt (PDF, JPEG, or PNG)</Label>
+							<Input
+								id="cleaning-receipt"
+								name="files"
+								type="file"
+								accept="application/pdf,image/jpeg,image/png"
+								required
+							/>
+						</div>
+						<Button type="submit" variant="outline" class="min-h-12">Upload receipt</Button>
+					</form>
+				</div>
 			</CardContent>
 		</Card>
 

@@ -148,13 +148,13 @@
 								</div>
 								{#if inspection.type === 'move_out'}
 									{#if hasMark(item, 'moveIn') && item.moveIn.comment}
-										<p class="text-muted-foreground text-xs">Move-in — {item.moveIn.comment}</p>
+										<p class="text-xs"><span class="text-muted-foreground">Move-in</span> — <span class="text-red-700 dark:text-red-300">{item.moveIn.comment}</span></p>
 									{/if}
 									{#if hasMark(item, 'moveOut') && item.moveOut.comment}
-										<p class="text-xs">Move-out — {item.moveOut.comment}</p>
+										<p class="text-xs"><span class="text-muted-foreground">Move-out</span> — <span class="text-red-700 dark:text-red-300">{item.moveOut.comment}</span></p>
 									{/if}
 								{:else if item.moveIn.comment}
-									<p class="text-muted-foreground text-xs">{item.moveIn.comment}</p>
+									<p class="text-xs text-red-700 dark:text-red-300">{item.moveIn.comment}</p>
 								{/if}
 								{#if item.flagged}
 									<p class="text-coral flex items-center gap-1 text-xs">
@@ -199,7 +199,12 @@
 			<CardContent>
 				<ul class="list-disc pl-5 text-sm">
 					{#each data.others as o (o.section + o.item + o.side)}
-						<li>{o.section} → {o.item} — O — {o.comment || 'no comment'} ({o.side})</li>
+						<li>
+							<span class="text-navy">{o.section} → {o.item}</span>
+							<span class="text-muted-foreground"> — O — </span>
+							<span class="text-red-700 dark:text-red-300">{o.comment || 'no comment'}</span>
+							<span class="text-muted-foreground"> ({o.side})</span>
+						</li>
 					{/each}
 				</ul>
 			</CardContent>

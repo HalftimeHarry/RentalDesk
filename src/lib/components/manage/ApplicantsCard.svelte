@@ -17,7 +17,7 @@
 	import * as Select from '$lib/components/ui/select';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import { formatDate, formatMoney } from '$lib/format';
-	import { Users } from '@lucide/svelte';
+	import { Receipt, Users } from '@lucide/svelte';
 
 	let { applications, form }: { applications: Application[]; form: FormFeedback } = $props();
 </script>
@@ -81,6 +81,27 @@
 					<Input name="review_notes" placeholder="Review notes (optional)" value={app.review_notes} />
 					<Button type="submit" size="sm" variant="outline">Update</Button>
 				</form>
+				{#if app.status !== 'draft'}
+					<div class="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border px-3 py-2 text-sm">
+						<Receipt class="text-ocean size-4 shrink-0" />
+						<span>
+							Screening fee{#if app.screening_fee_cents > 0}&nbsp;{formatMoney(app.screening_fee_cents)}{/if}:
+						</span>
+						{#if app.screening_fee_confirmed}
+							<span class="font-medium text-emerald-700">Received</span>
+						{:else if app.screening_payment_ref}
+							<span>
+								Payment reported (ref: {app.screening_payment_ref}) — not yet confirmed
+							</span>
+							<form method="POST" action="?/confirmScreeningFee" use:enhance>
+								<input type="hidden" name="id" value={app.id} />
+								<Button type="submit" size="sm" variant="outline" class="min-h-9">Confirm received</Button>
+							</form>
+						{:else}
+							<span class="text-muted-foreground">Not reported</span>
+						{/if}
+					</div>
+				{/if}
 			</div>
 		{/each}
 	</CardContent>

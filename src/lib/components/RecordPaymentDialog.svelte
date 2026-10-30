@@ -140,7 +140,7 @@
 	<Dialog.Portal>
 		<Dialog.Overlay />
 		<Dialog.Content
-			class="bg-card text-card-foreground mx-4 max-h-[85dvh] max-w-lg overflow-y-auto rounded-xl border p-6 shadow-lg"
+			class="bg-card text-card-foreground max-h-[85dvh] w-full max-w-[calc(100%-2rem)] overflow-y-auto rounded-xl border p-6 shadow-lg sm:max-w-lg"
 		>
 			{#if charge || (month && monthTargets.length > 0)}
 				<Dialog.Header>
@@ -180,7 +180,7 @@
 				<form method="POST" action="?/recordPayment" use:enhance={submit} class="mt-4 flex flex-col gap-4">
 					<input type="hidden" name="charge" value={anchorId} />
 
-					<div class="grid gap-4 sm:grid-cols-2">
+					<div class="grid grid-cols-2 gap-3 sm:gap-4">
 						<div class="flex flex-col gap-2">
 							<Label for="rp-amount">Payment amount (USD)</Label>
 							<Input id="rp-amount" name="amount" inputmode="decimal" required bind:value={amount} />

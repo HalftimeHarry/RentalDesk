@@ -4,6 +4,8 @@
  * so the original condition is always preserved.
  */
 
+import type { Inspection } from './types';
+
 export type ConditionCode = 'not_reviewed' | 'ok' | 'na' | 'other';
 
 export const CONDITIONS: { code: ConditionCode; label: string; hint?: string }[] = [
@@ -227,8 +229,91 @@ export const STAGE_LABELS: Record<InspectionStage, string> = {
 	signed: 'Signed'
 };
 
+type InspectionCandidate = Pick<
+	Inspection,
+	'id' | 'type' | 'stage' | 'archived' | 'created' | 'updated'
+> &
+	Partial<
+		Pick<
+			Inspection,
+			'sig_landlord' | 'sig_tenant' | 'tenant_names' | 'unit' | 'date'
+		>
+	>;
+
+export function unfinishedInspectionCandidates(
+	inspections: InspectionCandidate[],
+	type: 'move_in' | 'move_out'
+): InspectionCandidate[] {
+	return inspections
+		.filter(
+			(i) =>
+				i.type === type &&
+				!i.archived &&
+				i.stage !== 'signed' &&
+				i.stage !== 'completed'
+		)
+		.sort((a, b) => {
+			const aTime = new Date(a.updated || a.created || 0).getTime();
+			const bTime = new Date(b.updated || b.created || 0).getTime();
+			return bTime - aTime;
+		});
+}
+
+export function signedInspectionCandidates(
+	inspections: InspectionCandidate[],
+	type: 'move_in' | 'move_out'
+): InspectionCandidate[] {
+	return inspections
+		.filter((i) => i.type === type && !i.archived && i.stage === 'signed')
+		.sort((a, b) => {
+			const aTime = new Date(a.updated || a.created || 0).getTime();
+			const bTime = new Date(b.updated || b.created || 0).getTime();
+			return bTime - aTime;
+		});
+}
+
 export const DEFAULT_PROPERTY_ADDRESS = '2728 B Street, San Diego CA 92102';
 export const DEFAULT_UNIT = '102';
+
+// ---- signature/finalization integrity ----------------------------------------
+
+/** Canonical snapshot-covered content of an inspection (private manager notes
+ * are deliberately NOT covered — they are never frozen into signed snapshots). */
+function canonicalContent(i: Inspection): Record<string, unknown> {
+	return {
+		address: i.address,
+		unit: i.unit,
+		tenant_names: i.tenant_names,
+		occupancy: i.occupancy || 'occupied',
+		move_in_date: String(i.move_in_date ?? '').slice(0, 10),
+		move_out_date: String(i.move_out_date ?? '').slice(0, 10),
+		date: String(i.date ?? '').slice(0, 10),
+		type: i.type,
+		notes: i.notes,
+		checklist: parseChecklist(i.checklist),
+		proposed_deductions: parseDeductions(i.proposed_deductions)
+	};
+}
+
+/** True when the frozen signed_snapshot matches the record's current content. */
+export function snapshotMatchesContent(i: Inspection): boolean {
+	const snap = i.signed_snapshot;
+	if (!snap) return true; // nothing frozen yet — no drift possible
+	return JSON.stringify(canonicalContent(i)) === JSON.stringify(canonicalContent({ ...i, ...snap } as Inspection));
+}
+
+/**
+ * Finalization gate: both signatures must exist (file + printed name + server
+ * timestamp) and apply to the same saved content. Editing after a signature
+ * forks a new unsigned revision, so equality is structural — this exists to
+ * fail loudly rather than ever sign mismatched content.
+ */
+export function signaturesCoverSnapshot(i: Inspection): boolean {
+	if (!i.sig_landlord || !i.sig_tenant) return false;
+	if (!i.sig_landlord_name || !i.sig_tenant_name) return false;
+	if (!i.sig_landlord_at || !i.sig_tenant_at) return false;
+	return snapshotMatchesContent(i);
+}
 
 /** Display label for a stored condition; unmarked items render as a plain dash
  * (never implied OK). Legacy 'ok' marks still display as OK. */

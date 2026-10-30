@@ -11,6 +11,7 @@
 	} from '$lib/components/ui/card';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
+	import ApplicantNextSteps from '$lib/components/ApplicantNextSteps.svelte';
 
 	let { form }: { form: ActionData } = $props();
 </script>
@@ -78,4 +79,8 @@
 			</p>
 		</CardContent>
 	</Card>
+
+	<div class="mt-6">
+		<ApplicantNextSteps />
+	</div>
 </div>

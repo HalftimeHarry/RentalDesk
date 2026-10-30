@@ -2,12 +2,13 @@ import { fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { dashboardPath } from '$lib/server/guard';
 
-export const load: PageServerLoad = async ({ locals }) => {
-	if (locals.user) redirect(303, dashboardPath(locals.user));
+export const load: PageServerLoad = async ({ locals, url }) => {
+	const next = url.searchParams.get('next');
+	if (locals.user) redirect(303, next && next.startsWith('/') && !next.startsWith('//') ? next : dashboardPath(locals.user));
 };
 
 export const actions: Actions = {
-	default: async ({ request, locals }) => {
+	default: async ({ request, locals, url }) => {
 		const form = await request.formData();
 		const name = String(form.get('name') ?? '').trim();
 		const email = String(form.get('email') ?? '').trim().toLowerCase();
@@ -44,6 +45,7 @@ export const actions: Actions = {
 			return fail(400, { message, name, email });
 		}
 
-		redirect(303, '/dashboard/applicant');
+		const next = url.searchParams.get('next');
+		redirect(303, next && next.startsWith('/') && !next.startsWith('//') ? next : '/dashboard/applicant');
 	}
 };

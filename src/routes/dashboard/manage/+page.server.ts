@@ -2,18 +2,24 @@ import { fail, type Actions, type RequestEvent } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { requireRole } from '$lib/server/guard';
 import { leaseMeetsMinimum, planLeaseCharges, summarizeLedger, toISODate } from '$lib/server/billing';
-import { getActiveLease } from '$lib/server/lease';
+import { getActiveLease, getPendingLease } from '$lib/server/lease';
 import { parseMoneyToCents } from '$lib/format';
+import { sendMail } from '$lib/server/mail';
+import { inviteAdminEmail } from '$lib/server/email-templates';
+import { appBaseUrl, AppUrlConfigError, isExplicitProduction } from '$lib/server/app-url';
+import { PUBLIC_APP_URL } from '$app/env/public';
 import type {
 	Application,
 	Charge,
 	DocRecord,
 	Inspection,
+	Invitation,
 	Lease,
 	MaintenanceRequest,
 	Message,
 	MoveOutNotice,
 	Payment,
+	PropertyAccess,
 	UnitSettings,
 	User
 } from '$lib/types';
@@ -27,6 +33,7 @@ const FALLBACK_SETTINGS: Omit<UnitSettings, 'id' | 'created' | 'updated'> = {
 	min_lease_months: 3,
 	available_date: '',
 	is_available: true,
+	screening_fee_cents: 3500,
 	zelle_instructions: '',
 	photos: []
 };
@@ -60,6 +67,36 @@ export const load: PageServerLoad = async (event) => {
 
 	// Shared active-lease lookup — identical to the billing page.
 	const { lease: activeLease, error: leaseError } = await getActiveLease(pb);
+
+	// A pending lease (created from an approved application, awaiting the signed
+	// packet + explicit activation) is managed separately and never appears in
+	// tenant or billing views.
+	const { lease: pendingLease, error: pendingLeaseError } = await getPendingLease(pb);
+	let pendingLeaseDocuments: DocRecord[] = [];
+	let pendingApplication: Application | null = null;
+	let proposedCharges: ReturnType<typeof planLeaseCharges> = [];
+	if (pendingLease) {
+		[pendingLeaseDocuments, pendingApplication] = await Promise.all([
+			pb
+				.collection('documents')
+				.getFullList({ filter: `lease = "${pendingLease.id}"`, sort: '-created' })
+				.then((r) => r as unknown as DocRecord[])
+				.catch(() => [] as DocRecord[]),
+			pb
+				.collection('applications')
+				.getFirstListItem(`applicant = "${pendingLease.tenant}"`, { sort: '-created' })
+				.then((r) => r as unknown as Application)
+				.catch(() => null)
+		]);
+		// Proposed move-in charges for the activation review — nothing is created
+		// until activation. PocketBase returns datetimes; slice to the date part.
+		proposedCharges = planLeaseCharges({
+			start_date: pendingLease.start_date.slice(0, 10),
+			end_date: pendingLease.end_date.slice(0, 10),
+			monthly_rent_cents: pendingLease.monthly_rent_cents,
+			deposit_cents: pendingLease.deposit_cents
+		});
+	}
 
 	let charges: Charge[] = [];
 	let payments: Payment[] = [];
@@ -106,11 +143,22 @@ export const load: PageServerLoad = async (event) => {
 		.getFullList({ sort: '-created', expand: 'sender,recipient' })
 		.catch(() => [])) as unknown as Message[];
 
+	// Pending + past invitations (staff-only collection).
+	const invitations = (await pb
+		.collection('invitations')
+		.getFullList({ sort: '-created' })
+		.catch(() => [])) as unknown as Invitation[];
+
 	// Non-staff users are the messaging counterparties; owner additionally manages roles.
 	const allUsers = (await pb
 		.collection('users')
 		.getFullList({ sort: 'created' })
 		.catch(() => [])) as unknown as User[];
+
+	const propertyAccess = (await pb
+		.collection('property_access')
+		.getFullList({ sort: 'label' })
+		.catch(() => [])) as unknown as PropertyAccess[];
 
 	// Upcoming dates: lease end within 60 days + future inspections.
 	const today = new Date();
@@ -145,13 +193,20 @@ export const load: PageServerLoad = async (event) => {
 		applications,
 		activeLease,
 		leaseError,
+		pendingLease,
+		pendingLeaseError,
+		pendingLeaseDocuments,
+		pendingApplication,
+		proposedCharges,
 		charges,
 		payments,
 		inspections,
 		leaseDocuments,
 		maintenance,
 		messages,
+		invitations,
 		allUsers,
+		propertyAccess,
 		upcoming,
 		unpaidCharges,
 		moveOutNotices,
@@ -227,6 +282,30 @@ export const actions: Actions = {
 		if (monthly_rent_cents === null || deposit_cents === null) {
 			return fail(400, { section: 'settings', message: 'Rent and deposit must be valid amounts.' });
 		}
+		const screening_fee = parseMoneyToCents(form.get('screening_fee'));
+		if (screening_fee === null && String(form.get('screening_fee') ?? '').trim() !== '') {
+			return fail(400, { section: 'settings', message: 'Screening fee must be a valid amount.' });
+		}
+
+		// Locate the canonical settings record. A read error here is a real
+		// failure — never silently treat it as "no record" and create duplicates.
+		let existingId: string | null = null;
+		let existingPhotos: string[] = [];
+		let existingFee = 3500;
+		try {
+			const list = await locals.pb.collection('settings').getList(1, 1, { sort: 'created' });
+			if (list.items.length > 0) {
+				existingId = list.items[0].id;
+				existingPhotos = (list.items[0] as unknown as UnitSettings).photos ?? [];
+				const storedFee = (list.items[0] as unknown as UnitSettings).screening_fee_cents ?? 0;
+				existingFee = storedFee > 0 ? storedFee : 3500;
+			}
+		} catch (e) {
+			return fail(500, {
+				section: 'settings',
+				message: `Could not read current settings from PocketBase: ${pbError(e)}`
+			});
+		}
 
 		const data = {
 			unit_name: String(form.get('unit_name') ?? '').trim() || 'Rental Unit',
@@ -237,25 +316,10 @@ export const actions: Actions = {
 			min_lease_months: Math.max(1, Number(form.get('min_lease_months')) || 3),
 			available_date: String(form.get('available_date') ?? ''),
 			// Checkbox absent from form data means false — false is preserved.
-			is_available: form.get('is_available') === 'on'
+			is_available: form.get('is_available') === 'on',
+			// Blank fee input keeps the stored value (and never wipes it accidentally).
+			screening_fee_cents: screening_fee ?? existingFee
 		};
-
-		// Locate the canonical settings record. A read error here is a real
-		// failure — never silently treat it as "no record" and create duplicates.
-		let existingId: string | null = null;
-		let existingPhotos: string[] = [];
-		try {
-			const list = await locals.pb.collection('settings').getList(1, 1, { sort: 'created' });
-			if (list.items.length > 0) {
-				existingId = list.items[0].id;
-				existingPhotos = (list.items[0] as unknown as UnitSettings).photos ?? [];
-			}
-		} catch (e) {
-			return fail(500, {
-				section: 'settings',
-				message: `Could not read current settings from PocketBase: ${pbError(e)}`
-			});
-		}
 
 		// New listing photos are APPENDED: existing stored filenames are re-sent
 		// so PocketBase keeps them alongside the new uploads.
@@ -331,6 +395,62 @@ export const actions: Actions = {
 		return { section: 'settings', message: 'Photo removed.' };
 	},
 
+	savePropertyAccess: async (event) => {
+		if (!staffUser(event)) return staffOnly();
+		const { request, locals } = event;
+		const form = await request.formData();
+		const id = String(form.get('id') ?? '').trim();
+		const label = String(form.get('label') ?? '').trim();
+		const type = String(form.get('type') ?? 'gate');
+		const property = String(form.get('property') ?? '').trim();
+		const unit = String(form.get('unit') ?? '').trim();
+		const code = String(form.get('code') ?? '').trim();
+		const instructions = String(form.get('instructions') ?? '').trim();
+		const active = form.get('active') === 'on';
+
+		if (!label || !code) {
+			return fail(400, { section: 'property_access', message: 'Label and code are required.' });
+		}
+		if (type === 'door_lockbox' && !unit) {
+			return fail(400, { section: 'property_access', message: 'Door lockboxes must include a unit.' });
+		}
+
+		const payload = {
+			label,
+			type,
+			property,
+			unit,
+			code,
+			instructions,
+			active
+		};
+
+		try {
+			if (id) {
+				await locals.pb.collection('property_access').update(id, payload);
+				return { section: 'property_access', message: 'Property access saved.' };
+			}
+			await locals.pb.collection('property_access').create(payload);
+			return { section: 'property_access', message: 'Property access entry created.' };
+		} catch (e) {
+			return fail(500, { section: 'property_access', message: `Save failed: ${pbError(e)}` });
+		}
+	},
+
+	deletePropertyAccess: async (event) => {
+		if (!staffUser(event)) return staffOnly();
+		const { request, locals } = event;
+		const form = await request.formData();
+		const id = String(form.get('id') ?? '').trim();
+		if (!id) return fail(400, { section: 'property_access', message: 'Missing property access id.' });
+		try {
+			await locals.pb.collection('property_access').delete(id);
+		} catch (e) {
+			return fail(500, { section: 'property_access', message: `Delete failed: ${pbError(e)}` });
+		}
+		return { section: 'property_access', message: 'Property access deleted.' };
+	},
+
 	setApplicationStatus: async (event) => {
 		if (!staffUser(event)) return staffOnly();
 		const { request, locals } = event;
@@ -372,15 +492,15 @@ export const actions: Actions = {
 			});
 		}
 
-		// One unit — one active lease at a time.
+		// One unit — one open lease at a time (active OR pending).
 		const existing = await locals.pb
 			.collection('leases')
-			.getList(1, 1, { filter: 'status = "active"' })
+			.getList(1, 1, { filter: 'status = "active" || status = "pending"' })
 			.catch(() => null);
 		if (existing && existing.totalItems > 0) {
 			return fail(400, {
 				section: 'lease',
-				message: 'There is already an active lease. End it before creating a new one.'
+				message: 'There is already an active or pending lease. Activate, end, or resolve it first.'
 			});
 		}
 
@@ -402,30 +522,199 @@ export const actions: Actions = {
 			});
 		}
 
-		const lease = await locals.pb.collection('leases').create({
+		// PENDING lease only — no Tenant role, no charges, no delisting. Those all
+		// happen at explicit activation, after the signed packet is uploaded.
+		await locals.pb.collection('leases').create({
 			tenant: applicantId,
 			start_date,
 			end_date,
 			monthly_rent_cents,
 			deposit_cents,
-			status: 'active'
+			status: 'pending'
 		});
 
-		// Calendar-month billing schedule with proration + separate deposit charge.
-		const planned = planLeaseCharges({ start_date, end_date, monthly_rent_cents, deposit_cents });
-		for (const c of planned) {
-			await locals.pb.collection('charges').create({ ...c, lease: lease.id });
+		return {
+			section: 'lease',
+			message: 'Pending lease created. Upload the signed DocuSign packet, then activate the tenancy.'
+		};
+	},
+
+	// Explicit activation of a pending lease. Requires an approved application and
+	// an uploaded signed lease. Every step is skipped when already applied, so a
+	// retry (double-click, refresh resubmit) never duplicates charges or repeats
+	// transitions.
+	activateLease: async (event) => {
+		if (!staffUser(event)) return staffOnly();
+		const { request, locals } = event;
+		const form = await request.formData();
+		const leaseId = String(form.get('lease') ?? '');
+		if (!leaseId) return fail(400, { section: 'pending-lease', message: 'Lease is required.' });
+
+		let lease: Lease;
+		try {
+			lease = (await locals.pb
+				.collection('leases')
+				.getOne(leaseId, { expand: 'tenant' })) as unknown as Lease;
+		} catch {
+			return fail(404, { section: 'pending-lease', message: 'Lease not found.' });
 		}
 
-		// Promote the account from Applicant to Tenant (never to a management role).
-		await locals.pb.collection('users').update(applicantId, { role: 'tenant' });
+		if (lease.status === 'active') {
+			return { section: 'pending-lease', message: 'This lease is already active — no changes made.' };
+		}
+		if (lease.status !== 'pending') {
+			return fail(400, { section: 'pending-lease', message: 'Only a pending lease can be activated.' });
+		}
 
-		// The unit is no longer on the market.
-		if (settings?.id) {
+		// Approved application required.
+		let application: Application | null = null;
+		try {
+			application = (await locals.pb
+				.collection('applications')
+				.getFirstListItem(`applicant = "${lease.tenant}"`, { sort: '-created' })) as unknown as Application;
+		} catch {
+			application = null;
+		}
+		if (!application || application.status !== 'approved') {
+			return fail(400, { section: 'pending-lease', message: 'Activation requires an approved application.' });
+		}
+
+		// Completed signed lease (DocuSign packet) required.
+		const signed = await locals.pb
+			.collection('documents')
+			.getList(1, 1, { filter: `lease = "${lease.id}" && kind = "signed_lease"` })
+			.catch(() => null);
+		if (!signed || signed.totalItems === 0) {
+			return fail(400, {
+				section: 'pending-lease',
+				message: 'Upload the completed signed lease PDF before activating.'
+			});
+		}
+
+		// 1. Draft move-in charges (publishing stays a manual Billing step). Skipped
+		//    when any charge already exists for this lease.
+		const existingCharges = await locals.pb
+			.collection('charges')
+			.getList(1, 1, { filter: `lease = "${lease.id}"` })
+			.catch(() => null);
+		const chargesCreated = !existingCharges || existingCharges.totalItems === 0;
+		if (chargesCreated) {
+			const planned = planLeaseCharges({
+				start_date: lease.start_date.slice(0, 10),
+				end_date: lease.end_date.slice(0, 10),
+				monthly_rent_cents: lease.monthly_rent_cents,
+				deposit_cents: lease.deposit_cents
+			});
+			for (const c of planned) {
+				await locals.pb.collection('charges').create({ ...c, lease: lease.id, status: 'draft' });
+			}
+		}
+
+		// 2. Activate the lease.
+		await locals.pb.collection('leases').update(lease.id, { status: 'active' });
+
+		// 3. Grant Tenant access (only from Applicant — never a management role).
+		if (lease.expand?.tenant?.role === 'applicant') {
+			await locals.pb.collection('users').update(lease.tenant, { role: 'tenant' });
+		}
+
+		// 4. Delist the unit.
+		const settings = await getSettings(locals.pb);
+		if (settings?.id && settings.is_available) {
 			await locals.pb.collection('settings').update(settings.id, { is_available: false });
 		}
 
-		return { section: 'lease', message: 'Lease created and charges generated.' };
+		return {
+			section: 'pending-lease',
+			message: chargesCreated
+				? 'Tenancy activated. Draft move-in charges created — publish them from Billing when ready.'
+				: 'Tenancy activated. Charges already existed — none were duplicated.'
+		};
+	},
+
+	// Staff confirmation that the applicant-reported screening fee actually
+	// arrived. An applicant-entered reference alone only means "payment reported".
+	confirmScreeningFee: async (event) => {
+		if (!staffUser(event)) return staffOnly();
+		const { request, locals } = event;
+		const form = await request.formData();
+		const id = String(form.get('id') ?? '');
+		if (!id) return fail(400, { section: 'applications', message: 'Application is required.' });
+		await locals.pb.collection('applications').update(id, { screening_fee_confirmed: true });
+		return { section: 'applications', message: 'Screening fee marked as received.' };
+	},
+
+	// Invite a new Admin by email link. Both Owner and Admin may invite; the
+	// invitation can only ever grant Admin (schema allows no other role) and the
+	// role is applied server-side at acceptance. One pending invite per email —
+	// re-inviting returns the existing link instead of duplicating records.
+	inviteAdmin: async (event) => {
+		if (!staffUser(event)) return staffOnly();
+		const { request, locals } = event;
+		const user = locals.user!;
+		const form = await request.formData();
+		const email = String(form.get('email') ?? '').trim().toLowerCase();
+		if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+			return fail(400, { section: 'team', message: 'A valid email address is required.' });
+		}
+		if (email === user.email) {
+			return fail(400, { section: 'team', message: 'You are already on the team.' });
+		}
+
+		// Resolve the trusted link base FIRST — a missing/invalid PUBLIC_APP_URL
+		// is a clear configuration error and no invitation is created or sent.
+		let base: string;
+		try {
+			base = appBaseUrl(PUBLIC_APP_URL, { production: isExplicitProduction() });
+		} catch (e) {
+			if (e instanceof AppUrlConfigError) {
+				return fail(500, {
+					section: 'team',
+					message:
+						'Invitations are unavailable: PUBLIC_APP_URL is missing or invalid for this environment. Ask the owner to configure it. No invitation was created.'
+				});
+			}
+			throw e;
+		}
+
+		const existing = await locals.pb
+			.collection('invitations')
+			.getFirstListItem(`email = "${email}" && status = "pending"`)
+			.catch(() => null);
+		let invite: Invitation | null = existing as unknown as Invitation | null;
+		if (!invite) {
+			invite = (await locals.pb.collection('invitations').create({
+				email,
+				role: 'admin', // hard-coded — invitations can never grant Owner
+				token: crypto.randomUUID(),
+				status: 'pending',
+				invited_by: user.id,
+				expires: new Date(Date.now() + 7 * 86400_000).toISOString()
+			})) as unknown as Invitation;
+		}
+		const inviteUrl = `${base}/invite/${invite.token}`;
+
+		// Email is disabled by default during tests; the guarded sendMail enforces
+		// the recipient allowlist. The link is always shown to staff so local
+		// testing works without any email leaving the machine.
+		let emailNote = 'Email delivery is disabled — share the link below for local testing.';
+		try {
+			const t = inviteAdminEmail({
+				inviterName: user.name || user.email,
+				url: inviteUrl,
+				expires: invite.expires
+			});
+			const result = await sendMail({ to: email, subject: t.subject, html: t.html, text: t.text });
+			if (result.sent) emailNote = 'Invitation email sent.';
+		} catch {
+			emailNote = 'Email blocked by the test allowlist — use the link below.';
+		}
+
+		return {
+			section: 'team',
+			message: `Invitation for ${email} ${existing ? '(existing pending invite reused)' : 'created'}. ${emailNote}`,
+			inviteUrl
+		};
 	},
 
 	endLease: async (event) => {

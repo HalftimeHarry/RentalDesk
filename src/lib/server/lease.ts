@@ -44,3 +44,21 @@ export async function getDefaultLease(pb: PocketBase): Promise<ActiveLeaseResult
 		return { lease: null, error: err?.message || 'PocketBase query failed' };
 	}
 }
+
+/**
+ * The pending lease — created from an approved application but not yet
+ * activated (awaiting the signed packet + explicit activation). Pending leases
+ * never appear in tenant or billing views until activated.
+ */
+export async function getPendingLease(pb: PocketBase): Promise<ActiveLeaseResult> {
+	try {
+		const lease = (await pb
+			.collection('leases')
+			.getFirstListItem('status = "pending"', { expand: 'tenant', sort: '-created' })) as unknown as Lease;
+		return { lease, error: null };
+	} catch (e) {
+		const err = e as { status?: number; message?: string };
+		if (err?.status === 404) return { lease: null, error: null };
+		return { lease: null, error: err?.message || 'PocketBase query failed' };
+	}
+}

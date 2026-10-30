@@ -37,7 +37,8 @@
 		settings,
 		today,
 		form,
-		depositBilled = true
+		depositBilled = true,
+		hasPending = false
 	}: {
 		lease: Lease | null;
 		ledger: Ledger;
@@ -49,6 +50,8 @@
 		form: FormFeedback;
 		/** False when the lease requires a deposit but no published deposit charge exists. */
 		depositBilled?: boolean;
+		/** True when a pending lease awaits activation — hide the create form. */
+		hasPending?: boolean;
 	} = $props();
 
 	let leaseOpen = $state(false);
@@ -70,15 +73,21 @@
 				<House class="text-ocean size-5" /> Create lease
 			</CardTitle>
 			<CardDescription>
-				No active lease. Pick an approved applicant — the charge schedule (deposit + calendar-month
-				rent with proration) is generated automatically, and the applicant becomes the Tenant.
+				No active lease. Pick an approved applicant — a PENDING lease is created first. Charges,
+				Tenant access, and delisting happen only at activation, after the signed DocuSign packet
+				is uploaded.
 			</CardDescription>
 		</CardHeader>
 		<CardContent>
 			{#if form?.section === 'lease'}
 				<p class="bg-muted mb-3 rounded-md px-3 py-2 text-sm">{form.message}</p>
 			{/if}
-			{#if approvedApplications.length === 0}
+			{#if hasPending}
+				<p class="text-muted-foreground text-sm">
+					A pending lease is awaiting activation — review and activate it above before creating
+					another.
+				</p>
+			{:else if approvedApplications.length === 0}
 				<p class="text-muted-foreground text-sm">
 					No approved applications yet. Approve an application first.
 				</p>
@@ -133,7 +142,7 @@
 						Minimum term: {settings.min_lease_months} months. First/last partial months are prorated
 						by calendar day.
 					</p>
-					<Button type="submit" class="w-fit">Create lease &amp; generate charges</Button>
+					<Button type="submit" class="w-fit">Create pending lease</Button>
 				</form>
 			{/if}
 		</CardContent>
