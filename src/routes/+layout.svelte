@@ -81,7 +81,7 @@
 </div>
 
 <div class="flex h-dvh flex-col overflow-hidden print:h-auto print:overflow-visible">
-	<header class="bg-card/90 sticky top-0 z-40 border-b backdrop-blur print:hidden">
+	<header class="bg-seafoam text-navy sticky top-0 z-40 border-b border-navy/15 print:hidden">
 		<div class="mx-auto flex h-16 w-full max-w-6xl items-center gap-3 px-4">
 			<a href="/" class="flex items-center gap-2">
 				<img src={logo} alt="Rental Desk" class="h-10 w-auto object-contain" />
@@ -90,12 +90,18 @@
 				{#if data.user}
 					<span class="text-sm">
 						<span class="font-medium">{data.user.name || data.user.email}</span>
-						<span class="text-muted-foreground"> · {roleLabel}</span>
+						<span class="text-navy/70"> · {roleLabel}</span>
 					</span>
 					<Button href="/" size="sm" class="bg-gold text-navy hover:bg-gold/90 border-transparent">
 						<Home class="size-4" /> Listing
 					</Button>
-					<Button href={dashboardHref} variant="outline" size="sm">Dashboard</Button>
+					<Button
+						href={dashboardHref}
+						size="sm"
+						class="border-ocean bg-ocean text-white hover:brightness-110"
+					>
+						<LayoutDashboard class="size-4" /> Dashboard
+					</Button>
 					<Button
 						href="/logout"
 						size="sm"
@@ -104,8 +110,12 @@
 						<LogOut class="size-4" /> Sign out
 					</Button>
 				{:else}
-					<Button href="/login" variant="ghost" size="sm">Sign in</Button>
-					<Button href="/register" size="sm">Apply</Button>
+					<Button href="/login" variant="ghost" size="sm">
+						<LogIn class="size-4" /> Sign in
+					</Button>
+					<Button href="/register" size="sm">
+						<PenLine class="size-4" /> Apply
+					</Button>
 				{/if}
 			</nav>
 		</div>

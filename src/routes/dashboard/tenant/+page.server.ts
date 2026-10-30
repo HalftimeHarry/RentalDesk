@@ -2,7 +2,7 @@ import { fail, type Actions } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { requireRole } from '$lib/server/guard';
 import { managementContact } from '$lib/server/messages';
-import { summarizeLedger } from '$lib/server/billing';
+import { getLeaseCharges, summarizeLedger } from '$lib/server/billing';
 import type { Charge, DocRecord, Inspection, Lease, MaintenanceRequest, Message, Payment, UnitSettings } from '$lib/types';
 
 export const load: PageServerLoad = async (event) => {
@@ -24,12 +24,10 @@ export const load: PageServerLoad = async (event) => {
 	let documents: DocRecord[] = [];
 
 	if (lease) {
-		[charges, payments, inspections, documents] = await Promise.all([
-			pb
-				.collection('charges')
-				.getFullList({ filter: `lease = "${lease.id}"`, sort: 'due_date,created' })
-				.then((r) => r as unknown as Charge[])
-				.catch(() => [] as Charge[]),
+		const [chargesResult, paymentsRes, inspectionsRes, documentsRes] = await Promise.all([
+			// Shared loader — identical records/order to the management billing view
+			// (PocketBase rules still limit tenants to published charges).
+			getLeaseCharges(pb, lease.id),
 			pb
 				.collection('payments')
 				.getFullList({ filter: `lease = "${lease.id}"`, sort: '-date' })
@@ -46,6 +44,10 @@ export const load: PageServerLoad = async (event) => {
 				.then((r) => r as unknown as DocRecord[])
 				.catch(() => [] as DocRecord[])
 		]);
+		charges = chargesResult.charges;
+		payments = paymentsRes;
+		inspections = inspectionsRes;
+		documents = documentsRes;
 	}
 
 	const [maintenance, messages, contact] = await Promise.all([

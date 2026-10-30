@@ -2,6 +2,7 @@ import { fail, type Actions, type RequestEvent } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { requireRole } from '$lib/server/guard';
 import { leaseMeetsMinimum, planLeaseCharges, summarizeLedger, toISODate } from '$lib/server/billing';
+import { getActiveLease } from '$lib/server/lease';
 import { parseMoneyToCents } from '$lib/format';
 import type {
 	Application,
@@ -56,14 +57,8 @@ export const load: PageServerLoad = async (event) => {
 		.getFullList({ sort: '-created', expand: 'applicant' })
 		.catch(() => [])) as unknown as Application[];
 
-	let activeLease: Lease | null = null;
-	try {
-		activeLease = (await pb
-			.collection('leases')
-			.getFirstListItem('status = "active"', { expand: 'tenant' })) as unknown as Lease;
-	} catch {
-		activeLease = null;
-	}
+	// Shared active-lease lookup — identical to the billing page.
+	const { lease: activeLease, error: leaseError } = await getActiveLease(pb);
 
 	let charges: Charge[] = [];
 	let payments: Payment[] = [];
@@ -142,6 +137,7 @@ export const load: PageServerLoad = async (event) => {
 		settings,
 		applications,
 		activeLease,
+		leaseError,
 		charges,
 		payments,
 		inspections,
@@ -395,35 +391,6 @@ export const actions: Actions = {
 		return { section: 'lease', message: 'Lease ended. The unit is listed as available again.' };
 	},
 
-	recordPayment: async (event) => {
-		if (!staffUser(event)) return staffOnly();
-		const { request, locals } = event;
-		const form = await request.formData();
-		const lease = String(form.get('lease') ?? '');
-		const amount_cents = parseMoneyToCents(form.get('amount'));
-		const date = String(form.get('date') ?? '');
-		const method = String(form.get('method') ?? 'other');
-		const applies_to = String(form.get('applies_to') ?? 'rent');
-		const note = String(form.get('note') ?? '').trim();
-
-		if (!lease || amount_cents === null || amount_cents <= 0 || !date) {
-			return fail(400, { section: 'payments', message: 'Lease, amount, and date are required.' });
-		}
-		if (!['rent', 'deposit'].includes(applies_to)) {
-			return fail(400, { section: 'payments', message: 'Invalid payment target.' });
-		}
-		await locals.pb.collection('payments').create({
-			lease,
-			amount_cents,
-			date,
-			method,
-			applies_to,
-			note,
-			recorded_by: locals.user!.id
-		});
-		return { section: 'payments', message: 'Payment recorded.' };
-	},
-
 	addCharge: async (event) => {
 		if (!staffUser(event)) return staffOnly();
 		const { request, locals } = event;
@@ -450,7 +417,8 @@ export const actions: Actions = {
 			amount_cents,
 			due_date,
 			period: '',
-			prorated: false
+			prorated: false,
+			status: 'published'
 		});
 		return { section: 'charges', message: 'Charge added.' };
 	},

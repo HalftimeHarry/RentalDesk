@@ -5,10 +5,27 @@ export function formatMoney(cents: number): string {
 	return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
 }
 
-/** Format an ISO date string (YYYY-MM-DD or datetime) for display. */
+/**
+ * Format an ISO date string (YYYY-MM-DD or datetime) for display.
+ * Calendar-date values — date-only strings or PocketBase datetimes stored at
+ * exactly midnight UTC (what date inputs produce) — are rendered as the stored
+ * calendar date in UTC, so viewers in any timezone see the same day (no
+ * UTC-to-local one-day shift). Real timestamps keep local-time rendering.
+ */
 export function formatDate(iso: string | null | undefined): string {
 	if (!iso) return '—';
-	const d = new Date(iso.length === 10 ? `${iso}T00:00:00` : iso);
+	const s = String(iso).trim();
+	const calendar = /^(\d{4})-(\d{2})-(\d{2})(?:[T ]00:00:00(?:\.\d+)?(?:Z|[+-]00:?00)?)?$/.exec(s);
+	if (calendar) {
+		const d = new Date(Date.UTC(+calendar[1], +calendar[2] - 1, +calendar[3]));
+		return d.toLocaleDateString('en-US', {
+			year: 'numeric',
+			month: 'short',
+			day: 'numeric',
+			timeZone: 'UTC'
+		});
+	}
+	const d = new Date(s);
 	if (Number.isNaN(d.getTime())) return '—';
 	return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 }

@@ -245,7 +245,8 @@ try {
 		description: 'Prorated rent — January 2026',
 		amount_cents: 123387,
 		due_date: '2026-01-15',
-		prorated: true
+		prorated: true,
+		status: 'published'
 	});
 	createdRecords.charges.push(charge.id);
 	check('admin: can create lease and charge', !!lease.id && !!charge.id);

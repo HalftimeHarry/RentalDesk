@@ -98,7 +98,7 @@ function collectionDefs(usersId, applicationsId, leasesId, inspectionsId, charge
 			type: 'base',
 			fields: [
 				{ name: 'owner', type: 'relation', required: true, collectionId: usersId, maxSelect: 1, cascadeDelete: true },
-				{ name: 'kind', type: 'select', required: true, maxSelect: 1, values: ['identification', 'income', 'application', 'lease', 'inspection', 'receipt', 'bill', 'other'] },
+				{ name: 'kind', type: 'select', required: true, maxSelect: 1, values: ['identification', 'income', 'application', 'lease', 'signed_lease', 'inspection', 'receipt', 'bill', 'other'] },
 				{ name: 'title', type: 'text', required: true, max: 300 },
 				// Protected: downloads require a short-lived file token satisfying the record viewRule.
 				// PDF/JPEG/PNG only; 100x100 thumbs generated for image previews.
@@ -108,9 +108,10 @@ function collectionDefs(usersId, applicationsId, leasesId, inspectionsId, charge
 				{ name: 'inspection', type: 'relation', collectionId: inspectionsId, maxSelect: 1, cascadeDelete: false },
 				{ name: 'charge', type: 'relation', collectionId: chargesId, maxSelect: 1, cascadeDelete: false }
 			],
-			listRule: `owner = @request.auth.id || application.applicant = @request.auth.id || lease.tenant = @request.auth.id || ${STAFF}`,
-			viewRule: `owner = @request.auth.id || application.applicant = @request.auth.id || lease.tenant = @request.auth.id || ${STAFF}`,
-			createRule: '@request.auth.id != "" && @request.body.owner = @request.auth.id',
+			listRule: `owner = @request.auth.id || application.applicant = @request.auth.id || (lease.tenant = @request.auth.id && (charge = "" || charge.status = "published")) || ${STAFF}`,
+			viewRule: `owner = @request.auth.id || application.applicant = @request.auth.id || (lease.tenant = @request.auth.id && (charge = "" || charge.status = "published")) || ${STAFF}`,
+			// signed_lease uploads are restricted to staff; every signed-in user can still upload their own other kinds.
+			createRule: '@request.auth.id != "" && @request.body.owner = @request.auth.id && (@request.body.kind != "signed_lease" || @request.auth.role = "owner" || @request.auth.role = "admin")',
 			updateRule: STAFF,
 			deleteRule: `owner = @request.auth.id || ${STAFF}`
 		},
@@ -129,6 +130,8 @@ function collectionDefs(usersId, applicationsId, leasesId, inspectionsId, charge
 				{ name: 'status', type: 'select', required: true, maxSelect: 1, values: ['draft', 'published'] },
 				{ name: 'period_start', type: 'date' },
 				{ name: 'period_end', type: 'date' },
+				// Scheduled publication instant for draft bills (empty = unscheduled draft).
+				{ name: 'publish_at', type: 'date' },
 				// Frozen calculation details so later settings changes never rewrite history.
 				{ name: 'calc', type: 'json', maxSize: 1000000 }
 			],

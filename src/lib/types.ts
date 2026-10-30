@@ -41,6 +41,7 @@ export type DocumentKind =
 	| 'income'
 	| 'application'
 	| 'lease'
+	| 'signed_lease'
 	| 'inspection'
 	| 'receipt'
 	| 'bill'
@@ -89,6 +90,7 @@ export interface Charge {
 	status: 'draft' | 'published';
 	period_start: string; // YYYY-MM-DD or ''
 	period_end: string; // YYYY-MM-DD or ''
+	publish_at?: string; // scheduled publication instant ('' when unscheduled)
 	calc: import('./billing').RentComputation | null; // frozen calculation details
 	created: string;
 }

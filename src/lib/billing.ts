@@ -41,7 +41,7 @@ export function daysInclusive(start: string, end: string): number {
 	return Math.round((b.getTime() - a.getTime()) / 86400000) + 1;
 }
 
-function monthLabel(y: number, m: number): string {
+function monthKey(y: number, m: number): string {
 	return `${y}-${pad(m + 1)}`;
 }
 
@@ -61,7 +61,7 @@ export function splitByMonth(start: string, end: string): { month: string; days:
 		const from = cursor > monthStart ? cursor : monthStart;
 		const to = b < monthEnd ? b : monthEnd;
 		const days = to.getDate() - from.getDate() + 1;
-		out.push({ month: monthLabel(y, m), days, days_in_month: dim });
+		out.push({ month: monthKey(y, m), days, days_in_month: dim });
 		cursor.setFullYear(y, m + 1, 1);
 	}
 	return out;
@@ -146,4 +146,87 @@ export function billStatus(charge: { status?: string; amount_cents: number }, pa
 	if (paidCents <= 0) return 'unpaid';
 	if (paidCents < charge.amount_cents) return 'partially_paid';
 	return 'paid';
+}
+// ---- monthly statements -----------------------------------------------------
+
+export interface MonthStatement {
+	month: string; // YYYY-MM billing month
+	label: string; // e.g. "November 2026"
+	charges: ChargeLike[]; // published charges in this billing month
+	chargedCents: number;
+	paidCents: number;
+	remainingCents: number;
+	payments: PaymentLike[]; // payment rows allocated to this month's charges
+}
+
+export interface ChargeLike {
+	id: string;
+	type: string;
+	status?: string;
+	period?: string;
+	description?: string;
+	amount_cents: number;
+	due_date?: string;
+	created?: string;
+}
+
+export interface PaymentLike {
+	id: string;
+	charge?: string;
+	amount_cents: number;
+	date?: string;
+	method?: string;
+	reference?: string;
+}
+
+/** "2026-11" -> "November 2026" (built from parts — no timezone shift). */
+export function monthLabel(month: string): string {
+	const m = /^(\d{4})-(\d{2})$/.exec(month);
+	if (!m) return month || '—';
+	return new Date(Number(m[1]), Number(m[2]) - 1, 1).toLocaleDateString('en-US', {
+		month: 'long',
+		year: 'numeric'
+	});
+}
+
+/**
+ * Group PUBLISHED charges into monthly statements by billing month (period).
+ * Deposit charges are never grouped here — they are itemized separately.
+ * Months are ordered chronologically; charge/payment order is preserved.
+ */
+export function groupChargesByMonth<T extends ChargeLike, P extends PaymentLike>(
+	charges: T[],
+	payments: P[]
+): MonthStatement[] {
+	const byMonth = new Map<string, T[]>();
+	for (const c of charges) {
+		if (c.status === 'draft' || c.type === 'deposit') continue;
+		const month = c.period || '';
+		if (!month) continue; // no billing month -> not part of any monthly statement
+		const list = byMonth.get(month) ?? [];
+		list.push(c);
+		byMonth.set(month, list);
+	}
+	const statements: MonthStatement[] = [];
+	for (const [month, list] of [...byMonth.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+		const ids = new Set(list.map((c) => c.id));
+		const monthPayments = payments.filter((p) => p.charge && ids.has(p.charge));
+		const paidCents = monthPayments.reduce((s, p) => s + p.amount_cents, 0);
+		const chargedCents = list.reduce((s, c) => s + c.amount_cents, 0);
+		statements.push({
+			month,
+			label: monthLabel(month),
+			charges: list,
+			chargedCents,
+			paidCents,
+			remainingCents: Math.max(0, chargedCents - paidCents),
+			payments: monthPayments
+		});
+	}
+	return statements;
+}
+
+/** Deposit charges itemized separately from monthly statements. */
+export function depositCharges<T extends ChargeLike>(charges: T[]): T[] {
+	return charges.filter((c) => c.type === 'deposit' && c.status !== 'draft');
 }

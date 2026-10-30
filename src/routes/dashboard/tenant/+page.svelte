@@ -22,16 +22,60 @@
 	} from '$lib/components/ui/table';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
 	import MessageThread from '$lib/components/MessageThread.svelte';
+	import LeaseDetailsDialog from '$lib/components/LeaseDetailsDialog.svelte';
+	import BillingStatement from '$lib/components/BillingStatement.svelte';
 	import { docUrl, isImageFile } from '$lib/files';
 	import { formatDate, formatMoney } from '$lib/format';
-	import { billStatus } from '$lib/billing';
+	import { billStatus, monthLabel } from '$lib/billing';
 	import type { Charge, DocRecord } from '$lib/types';
-	import { FileText, House, Receipt, Wallet, ClipboardCheck, Wrench, MessageSquare, ShieldCheck } from '@lucide/svelte';
+	import { Eye, FileText, House, Receipt, Wallet, ClipboardCheck, Wrench, MessageSquare, ShieldCheck, Zap } from '@lucide/svelte';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 	let lease = $derived(data.lease);
-	let ledger = $derived(data.ledger);
+	let leaseOpen = $state(false);
 
+	// Bill attachments keyed by charge for the statement rows.
+	const billDocsMap = $derived(
+		Object.fromEntries(
+			data.documents
+				.filter((d) => d.kind === 'bill' && d.charge)
+				.map((d) => [d.charge, { url: docUrl(d.id, d.file) }])
+		)
+	);
+	let ledger = $derived(data.ledger);
+	let depositRemaining = $derived(Math.max(0, (lease?.deposit_cents ?? 0) - ledger.depositPaid));
+
+	// Itemized account balance: each published charge's remaining balance.
+	// Drafts never reach the client (API rules); the filter is belt-and-suspenders.
+	function shortLabel(c: Charge): string {
+		if (c.type === 'deposit') return 'Security deposit';
+		const month = c.period ? monthLabel(c.period).split(' ')[0] : '';
+		if (c.type === 'rent') return `${month} ${c.prorated ? 'partial rent' : 'rent'}`;
+		if (c.type === 'late_fee') return `${month} late fee`.trim();
+		// utilities: "AT&T reimbursement — service Nov 2026" -> "November AT&T"
+		const who = c.description.split(' reimbursement')[0].split(' — ')[0].trim();
+		return `${month} ${who}`.trim();
+	}
+	const balanceRows = $derived(
+		data.charges
+			.filter((c) => c.status === 'published' && c.type !== 'deposit')
+			.map((c) => ({ c, remaining: Math.max(0, c.amount_cents - paidFor(c)) }))
+			.filter((r) => r.remaining > 0)
+			.sort((a, b) => `${a.c.due_date}${a.c.id}`.localeCompare(`${b.c.due_date}${b.c.id}`))
+	);
+	// Deposit row: from the published deposit charge when billed, otherwise from the
+	// lease requirement (tagged "not yet billed" — it is not part of the billed total).
+	const depositRow = $derived.by(() => {
+		const dc = data.charges.find((c) => c.type === 'deposit' && c.status === 'published');
+		if (dc) {
+			const remaining = Math.max(0, dc.amount_cents - paidFor(dc));
+			return remaining > 0 ? { remaining, billed: true } : null;
+		}
+		if (lease && lease.deposit_cents > 0 && depositRemaining > 0) {
+			return { remaining: depositRemaining, billed: false };
+		}
+		return null;
+	});
 	const chargeTypeLabels: Record<string, string> = {
 		rent: 'Rent',
 		deposit: 'Deposit',
@@ -103,40 +147,58 @@
 			</CardContent>
 		</Card>
 	{:else}
-		<!-- Balance summary -->
-		<div class="grid gap-4 sm:grid-cols-3">
-			<Card>
-				<CardHeader class="pb-2">
-					<CardDescription class="flex items-center gap-1.5">
-					<Receipt class="text-coral size-4" /> Rent balance
-				</CardDescription>
-					<CardTitle class="text-2xl">{formatMoney(ledger.rentBalance)}</CardTitle>
-				</CardHeader>
-				<CardContent class="text-muted-foreground text-sm">
-					Charged {formatMoney(ledger.rentCharged)} · Paid {formatMoney(ledger.rentPaid)}
-				</CardContent>
-			</Card>
-			<Card>
-				<CardHeader class="pb-2">
-					<CardDescription class="flex items-center gap-1.5">
-					<ShieldCheck class="text-turquoise size-4" /> Security deposit (tracked separately)
-				</CardDescription>
-					<CardTitle class="text-2xl">{formatMoney(ledger.depositPaid)}</CardTitle>
-				</CardHeader>
-				<CardContent class="text-muted-foreground text-sm">
-					of {formatMoney(ledger.depositCharged)} required
-				</CardContent>
-			</Card>
-			<Card>
-				<CardHeader class="pb-2">
-					<CardDescription class="flex items-center gap-1.5">
-					<Wallet class="text-ocean size-4" /> Total balance due
-				</CardDescription>
-					<CardTitle class="text-2xl">{formatMoney(ledger.totalBalance)}</CardTitle>
-				</CardHeader>
-				<CardContent class="text-muted-foreground text-sm">Rent + deposit outstanding</CardContent>
-			</Card>
-		</div>
+		<!-- Account balance -->
+		<Card>
+			<CardHeader class="pb-2">
+				<CardTitle class="flex items-center gap-2">
+					<Wallet class="text-ocean size-5" /> Account balance
+				</CardTitle>
+				<CardDescription>Itemized by billing month.</CardDescription>
+			</CardHeader>
+			<CardContent>
+				{#if balanceRows.length === 0 && !depositRow}
+					<p class="text-muted-foreground text-sm">
+						Nothing due — all published charges are settled.
+					</p>
+				{:else}
+					<ul class="flex flex-col">
+						{#each balanceRows as r (r.c.id)}
+							{@const Icon = r.c.type === 'rent' ? House : r.c.type === 'late_fee' ? Receipt : Zap}
+							<li class="flex items-center gap-3 py-2.5">
+								<Icon class="text-ocean size-4 shrink-0" />
+								<span class="min-w-0 flex-1 truncate text-sm">{shortLabel(r.c)}</span>
+								<span class="shrink-0 text-sm font-medium tabular-nums">
+									{formatMoney(r.remaining)}
+								</span>
+							</li>
+						{/each}
+						{#if depositRow}
+							<li class="bg-sand/70 -mx-2 mt-1 flex items-center gap-3 rounded-lg px-2 py-2.5">
+								<ShieldCheck class="text-turquoise size-4 shrink-0" />
+								<span class="min-w-0 flex-1 text-sm">
+									Security deposit
+									<span class="text-muted-foreground block text-xs">
+										Required: {formatMoney(lease.deposit_cents)} · {depositRow.billed
+											? 'held separately'
+											: 'not yet billed — not in the total below'}
+									</span>
+								</span>
+								<span class="shrink-0 text-sm font-medium tabular-nums">
+									{formatMoney(depositRow.remaining)}
+								</span>
+							</li>
+						{/if}
+					</ul>
+					<hr class="border-border my-3" />
+					<div class="flex items-center justify-between gap-3">
+						<span class="text-sm font-semibold">Total balance due</span>
+						<span class="text-navy text-xl font-bold tabular-nums">
+							{formatMoney(ledger.totalBalance)}
+						</span>
+					</div>
+				{/if}
+			</CardContent>
+		</Card>
 
 		<!-- Lease -->
 		<Card>
@@ -145,7 +207,13 @@
 					<CardTitle class="flex items-center gap-2">
 						<House class="text-ocean size-5" /> Lease
 					</CardTitle>
-					<StatusBadge status={lease.status} />
+					<div class="flex items-center gap-2">
+						<StatusBadge status={lease.status} />
+						<Button variant="outline" size="sm" class="min-h-12" onclick={() => (leaseOpen = true)}>
+							<Eye class="size-4" /> View lease
+						</Button>
+						<LeaseDetailsDialog bind:open={leaseOpen} {lease} documents={data.documents} canManage={false} />
+					</div>
 				</div>
 				<CardDescription>
 					{formatDate(lease.start_date)} – {formatDate(lease.end_date)} · {formatMoney(
@@ -182,64 +250,18 @@
 			{/if}
 		</Card>
 
-		<!-- Charges -->
-		<Card>
-			<CardHeader>
-				<CardTitle class="flex items-center gap-2">
-					<Receipt class="text-coral size-5" /> Charges
-				</CardTitle>
-				<CardDescription>Itemized by calendar month. Partial months are prorated.</CardDescription>
-			</CardHeader>
-			<CardContent>
-				<Table>
-					<TableHeader>
-						<TableRow>
-							<TableHead>Period</TableHead>
-							<TableHead>Description</TableHead>
-							<TableHead>Due</TableHead>
-							<TableHead>Status</TableHead>
-							<TableHead class="text-right">Amount</TableHead>
-							<TableHead class="text-right">Remaining</TableHead>
-						</TableRow>
-					</TableHeader>
-					<TableBody>
-						{#each data.charges as c (c.id)}
-							{@const calcText = calcSummary(c)}
-							{@const billDoc = billDocFor(c)}
-							<TableRow>
-								<TableCell>
-									{#if c.period_start && c.period_end}
-										{formatDate(c.period_start)} – {formatDate(c.period_end)}
-									{:else}
-										{c.period || '—'}
-									{/if}
-								</TableCell>
-								<TableCell>
-									{c.description}
-									{#if calcText}
-										<span class="text-muted-foreground block text-xs">{calcText}</span>
-									{/if}
-									{#if billDoc}
-										<a
-											href={docUrl(billDoc.id, billDoc.file)}
-											target="_blank"
-											rel="noreferrer"
-											class="text-ocean flex items-center gap-1 text-xs underline-offset-4 hover:underline"
-										>
-											<FileText class="size-3" /> Bill attachment
-										</a>
-									{/if}
-								</TableCell>
-								<TableCell>{formatDate(c.due_date)}</TableCell>
-								<TableCell><StatusBadge status={statusOf(c)} /></TableCell>
-								<TableCell class="text-right font-medium">{formatMoney(c.amount_cents)}</TableCell>
-								<TableCell class="text-right">{formatMoney(remainingOf(c))}</TableCell>
-							</TableRow>
-						{/each}
-					</TableBody>
-				</Table>
-			</CardContent>
-		</Card>
+		<!-- Monthly statements -->
+		<div class="flex flex-col gap-4">
+			<h2 class="text-lg font-semibold tracking-tight text-white drop-shadow-sm">
+				Monthly statements
+			</h2>
+			<BillingStatement
+				charges={data.charges}
+				payments={data.payments}
+				billDocs={billDocsMap}
+				printHref={(m) => `/dashboard/billing/statement?month=${m}`}
+			/>
+		</div>
 
 		<!-- Payments -->
 		<Card>

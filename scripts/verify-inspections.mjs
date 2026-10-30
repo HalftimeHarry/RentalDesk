@@ -250,9 +250,18 @@ try {
 	const fileRes = await fetch(`${APP}/files/inspections/${inspId}/${withCopy.signed_copy}`, {
 		headers: { cookie: adminCookie }, redirect: 'manual'
 	});
-	check('signed copy downloads via tokenized app route', fileRes.status === 302, `status ${fileRes.status}`);
-	const anonFile = await fetch(`${APP}/files/inspections/${inspId}/${withCopy.signed_copy}`, { redirect: 'manual' });
-	check('anon cannot download signed copy', anonFile.status === 401, `status ${anonFile.status}`);
+    // The app route proxies the bytes (200) rather than redirecting (302): verify
+    // the actual content comes back, not just the status.
+    const fileBody = new Uint8Array(await fileRes.arrayBuffer());
+    check(
+            'signed copy downloads via authenticated app proxy (real bytes)',
+            fileRes.status === 200 &&
+                    (fileRes.headers.get('content-type') ?? '').includes('image/png') &&
+                    PNG.slice(0, 8).every((b, i) => fileBody[i] === b),
+            `status ${fileRes.status}, type ${fileRes.headers.get('content-type')}, bytes ${fileBody.length}`
+    );
+    const anonFile = await fetch(`${APP}/files/inspections/${inspId}/${withCopy.signed_copy}`, { redirect: 'manual' });
+    check('anon cannot download signed copy', anonFile.status === 401, `status ${anonFile.status}`);
 
 	// ---- signatures -------------------------------------------------------------
 	const signFd = (who, name, withAck, withSig) => {

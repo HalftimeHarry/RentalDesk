@@ -22,9 +22,10 @@
 	import { Label } from '$lib/components/ui/label';
 	import * as Select from '$lib/components/ui/select';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
+	import LeaseDetailsDialog from '$lib/components/LeaseDetailsDialog.svelte';
 	import { docUrl, isImageFile } from '$lib/files';
 	import { formatDate, formatMoney } from '$lib/format';
-	import { FileText, ClipboardCheck, House } from '@lucide/svelte';
+	import { FileText, ClipboardCheck, Eye, HandCoins, House } from '@lucide/svelte';
 
 	let {
 		lease,
@@ -34,7 +35,8 @@
 		approvedApplications,
 		settings,
 		today,
-		form
+		form,
+		depositBilled = true
 	}: {
 		lease: Lease | null;
 		ledger: Ledger;
@@ -44,7 +46,11 @@
 		settings: UnitSettings;
 		today: string;
 		form: FormFeedback;
+		/** False when the lease requires a deposit but no published deposit charge exists. */
+		depositBilled?: boolean;
 	} = $props();
+
+	let leaseOpen = $state(false);
 </script>
 
 {#if !lease}
@@ -130,7 +136,12 @@
 					<House class="text-ocean size-5" />
 					Current tenant: {lease.expand?.tenant?.name || lease.expand?.tenant?.email || 'Tenant'}
 				</CardTitle>
-				<StatusBadge status={lease.status} />
+				<div class="flex items-center gap-2">
+					<StatusBadge status={lease.status} />
+					<Button variant="outline" size="sm" class="min-h-12" onclick={() => (leaseOpen = true)}>
+						<Eye class="size-4" /> View lease
+					</Button>
+				</div>
 			</div>
 			<CardDescription>
 				{formatDate(lease.start_date)} – {formatDate(lease.end_date)} · {formatMoney(
@@ -151,8 +162,13 @@
 					<p class="text-muted-foreground text-sm">Deposit held</p>
 					<p class="text-xl font-semibold">{formatMoney(ledger.depositPaid)}</p>
 					<p class="text-muted-foreground text-xs">
-						of {formatMoney(ledger.depositCharged)} required
+						of {formatMoney(lease.deposit_cents)} required
 					</p>
+					{#if !depositBilled && lease.deposit_cents > 0}
+						<p class="mt-1 rounded bg-amber-100 px-2 py-1 text-xs font-medium text-amber-900">
+							Deposit not yet billed
+						</p>
+					{/if}
 				</div>
 				<div class="rounded-lg border p-3">
 					<p class="text-muted-foreground text-sm">Total due</p>
@@ -160,54 +176,14 @@
 				</div>
 			</div>
 
-			{#if form?.section === 'payments'}
-				<p class="bg-muted rounded-md px-3 py-2 text-sm">{form.message}</p>
-			{/if}
-			<form
-				method="POST"
-				action="?/recordPayment"
-				use:enhance
-				class="grid items-end gap-3 rounded-lg border p-4 sm:grid-cols-5"
-			>
-				<input type="hidden" name="lease" value={lease.id} />
-				<div class="flex flex-col gap-2">
-					<Label for="p-amount">Amount (USD)</Label>
-					<Input id="p-amount" name="amount" inputmode="decimal" required />
-				</div>
-				<div class="flex flex-col gap-2">
-					<Label for="p-date">Date</Label>
-					<Input id="p-date" name="date" type="date" value={today} required />
-				</div>
-				<div class="flex flex-col gap-2">
-					<Label for="p-method">Method</Label>
-					<Select.Root type="single" name="method" value="cash">
-						<Select.Trigger id="p-method" class="w-full"><Select.Value /></Select.Trigger>
-						<Select.Content>
-							<Select.Item value="cash">Cash</Select.Item>
-							<Select.Item value="check">Check</Select.Item>
-							<Select.Item value="zelle">Zelle</Select.Item>
-							<Select.Item value="venmo">Venmo</Select.Item>
-							<Select.Item value="bank_transfer">Bank transfer</Select.Item>
-							<Select.Item value="other">Other</Select.Item>
-						</Select.Content>
-					</Select.Root>
-				</div>
-				<div class="flex flex-col gap-2">
-					<Label for="p-applies">Applies to</Label>
-					<Select.Root type="single" name="applies_to" value="rent">
-						<Select.Trigger id="p-applies" class="w-full"><Select.Value /></Select.Trigger>
-						<Select.Content>
-							<Select.Item value="rent">Rent</Select.Item>
-							<Select.Item value="deposit">Deposit</Select.Item>
-						</Select.Content>
-					</Select.Root>
-				</div>
-				<div class="flex flex-col gap-2">
-					<Label for="p-note">Note</Label>
-					<Input id="p-note" name="note" placeholder="Optional" />
-				</div>
-				<Button type="submit" size="sm" class="sm:col-span-5 sm:w-fit">Record payment</Button>
-			</form>
+			<div class="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-4">
+				<p class="text-muted-foreground text-sm">
+					Payments are recorded against specific charges from the billing workspace.
+				</p>
+				<Button href="/dashboard/manage/billing" variant="outline" size="sm" class="min-h-12">
+					<HandCoins class="size-4" /> Record payment
+				</Button>
+			</div>
 
 			{#if form?.section === 'charges'}
 				<p class="bg-muted rounded-md px-3 py-2 text-sm">{form.message}</p>
@@ -249,6 +225,8 @@
 			</form>
 		</CardContent>
 	</Card>
+
+	<LeaseDetailsDialog bind:open={leaseOpen} {lease} documents={leaseDocuments} canManage />
 
 	<div class="grid gap-6 lg:grid-cols-2">
 		<!-- Inspections -->

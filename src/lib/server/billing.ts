@@ -1,5 +1,28 @@
 import type { Charge, ChargeType, Lease, Payment } from '$lib/types';
 import type { Ledger } from '$lib/types';
+import type PocketBase from 'pocketbase';
+
+/**
+ * Shared charge loading for a lease — used by BOTH the management billing page
+ * and the tenant dashboard so both views read identical records in identical
+ * order. PocketBase rules still decide what each role may see (tenants only
+ * get published charges back).
+ * Errors are returned, never swallowed, so callers can surface them.
+ */
+export async function getLeaseCharges(
+	pb: PocketBase,
+	leaseId: string
+): Promise<{ charges: Charge[]; error: string | null }> {
+	try {
+		const charges = (await pb
+			.collection('charges')
+			.getFullList({ filter: `lease = "${leaseId}"`, sort: 'due_date,created' })) as unknown as Charge[];
+		return { charges, error: null };
+	} catch (e) {
+		const err = e as { response?: { message?: string }; message?: string };
+		return { charges: [], error: err?.response?.message || err?.message || 'unknown error' };
+	}
+}
 
 /**
  * Calendar-month billing.

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { ActionData, PageData } from './$types';
 	import { enhance } from '$app/forms';
+	import { goto } from '$app/navigation';
 	import { Button } from '$lib/components/ui/button';
 	import {
 		Card,
@@ -17,23 +18,41 @@
 	import { computeRentCharge, daysInclusive, type RentComputation } from '$lib/billing';
 	import { formatDate, formatMoney } from '$lib/format';
 	import { cn } from '$lib/utils';
+	import RecordPaymentDialog from '$lib/components/RecordPaymentDialog.svelte';
+	import BillingStatement from '$lib/components/BillingStatement.svelte';
 	import {
 		ArrowLeft,
 		Calculator,
+		CalendarDays,
 		CircleDollarSign,
 		FileText,
+		HandCoins,
+		Hourglass,
 		Receipt,
 		ShieldCheck,
 		Upload,
 		Zap
 	} from '@lucide/svelte';
-	import type { Charge, Payment } from '$lib/types';
+	import type { Charge, Lease, Payment } from '$lib/types';
 	import { billStatus } from '$lib/billing';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
+	const typeLabels: Record<string, string> = {
+		rent: 'Rent',
+		deposit: 'Security deposit',
+		late_fee: 'Late fee',
+		other: 'Other'
+	};
+
+	function leaseLabel(l: Lease | undefined): string {
+		if (!l) return 'Select lease…';
+		const who = l.expand?.tenant?.name || l.expand?.tenant?.email || 'Tenant';
+		return `${who} · ${formatDate(l.start_date)} – ${formatDate(l.end_date)} · ${l.status}`;
+	}
+
 	// ---- composer state -------------------------------------------------------
-	let kind = $state<'rent_full' | 'rent_partial' | 'utility_att' | 'utility_sdge'>('rent_full');
+	let kind = $state<'rent_full' | 'rent_partial' | 'utility_att' | 'utility_sdge' | 'deposit' | 'other'>('rent_full');
 	let month = $state('');
 	let amountOverride = $state('');
 	let basis = $state<'30-day' | 'actual'>('30-day');
@@ -48,8 +67,10 @@
 	const kindLabels: Record<string, string> = {
 		rent_full: 'Rent — full month',
 		rent_partial: 'Rent — partial month (prorated)',
+		deposit: 'Security deposit',
 		utility_att: 'AT&T reimbursement',
-		utility_sdge: 'SDG&E reimbursement'
+		utility_sdge: 'SDG&E reimbursement',
+		other: 'Other charge (credit check, fee, etc.)'
 	};
 
 	let defaultRent = $derived(
@@ -102,6 +123,9 @@
 	}
 
 	let paying = $state('');
+	let payOpen = $state(false);
+	let payCharge: Charge | null = $state(null);
+	let payMonth: string | null = $state(null);
 
 	const methodLabels: Record<string, string> = {
 		zelle: 'Zelle',
@@ -125,10 +149,39 @@
 		<h1 class="text-2xl font-bold tracking-tight text-white drop-shadow-sm">Billing</h1>
 	</div>
 
+	{#if data.leasesError}
+		<p class="bg-destructive/10 text-destructive rounded-md px-3 py-2 text-sm">
+			Could not load the lease list: {data.leasesError}
+		</p>
+	{/if}
+	{#if data.leases.length > 1}
+		<div class="flex flex-wrap items-center gap-2">
+			<Label for="lease-picker" class="text-white/85 drop-shadow-sm">Lease</Label>
+			<Select.Root
+				type="single"
+				value={data.lease?.id ?? ''}
+				onValueChange={(v) => v && goto(`?lease=${v}`)}
+			>
+				<Select.Trigger id="lease-picker" class="bg-card min-h-12 w-full sm:w-[26rem]">
+					{leaseLabel(data.leases.find((l) => l.id === data.lease?.id))}
+				</Select.Trigger>
+				<Select.Content>
+					{#each data.leases as l (l.id)}
+						<Select.Item value={l.id}>{leaseLabel(l)}</Select.Item>
+					{/each}
+				</Select.Content>
+			</Select.Root>
+		</div>
+	{/if}
+
 	{#if !data.lease}
 		<Card>
-			<CardContent class="text-muted-foreground py-8 text-center text-sm">
-				No active lease. Create one from the management dashboard first.
+			<CardContent class="py-8 text-center text-sm {data.leaseError ? 'text-destructive' : 'text-muted-foreground'}">
+				{#if data.leaseError}
+					Could not load the active lease: {data.leaseError}
+				{:else}
+					No active lease. Create one from the management dashboard first.
+				{/if}
 			</CardContent>
 		</Card>
 	{:else}
@@ -140,13 +193,48 @@
 		</div>
 
 		<!-- Summary -->
-		<div class="grid gap-4 sm:grid-cols-3">
+		<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
 			<Card>
 				<CardHeader class="pb-2">
 					<CardDescription class="flex items-center gap-1.5">
 						<CircleDollarSign class="text-turquoise size-4" /> Balance due (published)
 					</CardDescription>
 					<CardTitle class="text-2xl">{formatMoney(data.ledger.totalBalance)}</CardTitle>
+				</CardHeader>
+				<CardContent class="text-muted-foreground pt-0 text-xs">
+					{#if data.ledger.depositBalance > 0}
+						Includes {formatMoney(data.ledger.depositBalance)} unpaid deposit
+					{:else if data.ledger.depositCharged > 0}
+						Deposit fully received
+					{:else}
+						No deposit charged yet
+					{/if}
+				</CardContent>
+			</Card>
+			<Card>
+				<CardHeader class="pb-2">
+					<CardDescription class="flex items-center gap-1.5">
+						<ShieldCheck class="text-ocean size-4" /> Deposit required (lease)
+					</CardDescription>
+					<CardTitle class="text-2xl">{formatMoney(data.lease.deposit_cents)}</CardTitle>
+				</CardHeader>
+			</Card>
+			<Card>
+				<CardHeader class="pb-2">
+					<CardDescription class="flex items-center gap-1.5">
+						<HandCoins class="text-turquoise size-4" /> Deposit received
+					</CardDescription>
+					<CardTitle class="text-2xl">{formatMoney(data.ledger.depositPaid)}</CardTitle>
+				</CardHeader>
+			</Card>
+			<Card>
+				<CardHeader class="pb-2">
+					<CardDescription class="flex items-center gap-1.5">
+						<Hourglass class="text-coral size-4" /> Deposit remaining
+					</CardDescription>
+					<CardTitle class="text-2xl">
+						{formatMoney(Math.max(0, data.lease.deposit_cents - data.ledger.depositPaid))}
+					</CardTitle>
 				</CardHeader>
 			</Card>
 			<Card>
@@ -158,16 +246,25 @@
 						{data.charges.filter((c) => c.status === 'draft').length}
 					</CardTitle>
 				</CardHeader>
-			</Card>
-			<Card>
-				<CardHeader class="pb-2">
-					<CardDescription class="flex items-center gap-1.5">
-						<ShieldCheck class="text-turquoise size-4" /> Deposit held (separate)
-					</CardDescription>
-					<CardTitle class="text-2xl">{formatMoney(data.ledger.depositPaid)}</CardTitle>
-				</CardHeader>
+				<CardContent class="text-muted-foreground pt-0 text-xs">
+					draft total{' '}
+					{formatMoney(
+						data.charges
+							.filter((c) => c.status === 'draft')
+							.reduce((s, c) => s + c.amount_cents, 0)
+					)}
+				</CardContent>
 			</Card>
 		</div>
+
+		{#if data.lease.deposit_cents > 0 && !data.charges.some((c) => c.type === 'deposit' && c.status === 'published')}
+			<p class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+				<ShieldCheck class="mr-1 inline size-4 align-text-bottom" />
+				Deposit not yet billed — the lease requires {formatMoney(data.lease.deposit_cents)}. Add it
+				from the composer (Security deposit) when you're ready to bill it; nothing is created
+				automatically.
+			</p>
+		{/if}
 
 		<!-- New charge -->
 		<Card>
@@ -377,15 +474,58 @@
 								</div>
 							</div>
 						{/if}
+					{:else if kind === 'deposit'}
+						<!-- security deposit -->
+						<div class="flex flex-col gap-2">
+							<Label for="deposit_amount">
+								Deposit amount (USD) — leave blank to use the lease requirement of
+								{formatMoney(data.lease.deposit_cents)}
+							</Label>
+							<Input
+								id="deposit_amount"
+								name="amount"
+								inputmode="decimal"
+								placeholder={(data.lease.deposit_cents / 100).toFixed(2)}
+							/>
+						</div>
+						<p class="text-muted-foreground text-xs">
+							One deposit charge per lease — a second one is blocked automatically. Editing the amount
+							here never changes the lease requirement.
+						</p>
+					{:else if kind === 'other'}
+						<!-- other one-off charge -->
+						<div class="grid gap-4 sm:grid-cols-2">
+							<div class="flex flex-col gap-2 sm:col-span-2">
+								<Label for="other_description">Description</Label>
+								<Input
+									id="other_description"
+									name="description"
+									required
+									placeholder="e.g. Credit-check reimbursement"
+								/>
+							</div>
+							<div class="flex flex-col gap-2">
+								<Label for="other_amount">Amount (USD)</Label>
+								<Input id="other_amount" name="amount" inputmode="decimal" required placeholder="0.00" />
+							</div>
+							<div class="flex flex-col gap-2">
+								<Label for="other_billing_month">Billing month</Label>
+								<Input id="other_billing_month" name="billing_month" type="month" required />
+							</div>
+						</div>
 					{:else}
 						<!-- utilities -->
-						<div class="grid gap-4 sm:grid-cols-2">
+						<div class="grid gap-4 sm:grid-cols-3">
+							<div class="flex flex-col gap-2">
+								<Label for="billing_month">Billing month</Label>
+								<Input id="billing_month" name="billing_month" type="month" required />
+							</div>
 							<div class="flex flex-col gap-2">
 								<Label for="amount">Reimbursement amount (USD)</Label>
 								<Input id="amount" name="amount" inputmode="decimal" required placeholder="0.00" />
 							</div>
 							<div class="flex flex-col gap-2">
-								<Label for="service_period">Service period</Label>
+								<Label for="service_period">Service period (stays on the bill text)</Label>
 								<Input id="service_period" name="service_period" required placeholder="e.g. Oct 2026" />
 							</div>
 						</div>
@@ -424,7 +564,11 @@
 				{#if form?.section === 'charges'}
 					<p class="bg-turquoise/15 text-navy rounded-md px-3 py-2 text-sm">{form.message}</p>
 				{/if}
-				{#if data.charges.length === 0}
+				{#if data.chargesError}
+					<p class="bg-destructive/10 text-destructive rounded-md px-3 py-2 text-sm">
+						Could not load charges: {data.chargesError}
+					</p>
+				{:else if data.charges.length === 0}
 					<p class="text-muted-foreground text-sm">No charges yet.</p>
 				{/if}
 				{#each data.charges as c (c.id)}
@@ -434,10 +578,15 @@
 					<div class="flex flex-col gap-3 rounded-xl border p-4">
 						<div class="flex flex-wrap items-center justify-between gap-2">
 							<div>
-								<p class="font-medium">{c.description}</p>
+								<p class="font-medium">
+									<span class="bg-muted text-muted-foreground mr-1.5 inline-block rounded px-1.5 py-0.5 align-middle text-[11px]">
+										{typeLabels[c.type] ?? c.type}
+									</span>
+									{c.description}
+								</p>
 								<p class="text-muted-foreground text-sm">
 									Due {formatDate(c.due_date)}
-									{#if c.period_start} · period {c.period_start} → {c.period_end}{/if}
+								{#if c.period_start} · period {formatDate(c.period_start)} → {formatDate(c.period_end)}{/if}
 								</p>
 							</div>
 							<div class="flex items-center gap-2">
@@ -457,11 +606,9 @@
 						{/if}
 						<p class="text-sm">
 							<strong>{formatMoney(c.amount_cents)}</strong>
-							{#if paid > 0}
-								<span class="text-muted-foreground">
-									· paid {formatMoney(paid)} · remaining {formatMoney(remaining)}
-								</span>
-							{/if}
+							<span class="text-muted-foreground">
+								· paid {formatMoney(paid)} · remaining {formatMoney(remaining)}
+							</span>
 						</p>
 						{#if data.billDocs[c.id]}
 							<a
@@ -489,63 +636,48 @@
 
 						{#if c.status === 'published' && remaining > 0}
 							<Separator />
-							<form
-								method="POST"
-								action="?/recordPayment"
-								use:enhance={() => {
-									paying = c.id;
-									return async ({ update }) => {
-										await update();
-										paying = '';
-									};
+							<Button
+								size="sm"
+								variant="outline"
+								class="min-h-12 w-fit"
+								onclick={() => {
+									payCharge = c;
+									payMonth = null;
+									payOpen = true;
 								}}
-								class="grid items-end gap-2 sm:grid-cols-5"
 							>
-								<input type="hidden" name="charge" value={c.id} />
-								<div class="flex flex-col gap-1">
-									<Label for="pa-{c.id}" class="text-xs">Amount (USD)</Label>
-									<Input id="pa-{c.id}" name="amount" inputmode="decimal" required value={(remaining / 100).toFixed(2)} />
-								</div>
-								<div class="flex flex-col gap-1">
-									<Label for="pd-{c.id}" class="text-xs">Date</Label>
-									<Input id="pd-{c.id}" name="date" type="date" required value={data.today} />
-								</div>
-								<div class="flex flex-col gap-1">
-									<Label for="pm-{c.id}" class="text-xs">Method</Label>
-									<Select.Root type="single" name="method" value="zelle">
-										<Select.Trigger id="pm-{c.id}" class="w-full">Zelle</Select.Trigger>
-										<Select.Content>
-											{#each Object.entries(methodLabels) as [value, label] (value)}
-												<Select.Item {value}>{label}</Select.Item>
-											{/each}
-										</Select.Content>
-									</Select.Root>
-								</div>
-								<div class="flex flex-col gap-1">
-									<Label for="pr-{c.id}" class="text-xs">Reference (optional)</Label>
-									<Input id="pr-{c.id}" name="reference" placeholder="Zelle confirmation #" />
-								</div>
-								<Button type="submit" size="sm" variant="outline" class="min-h-12" disabled={paying === c.id}>
-									{#if paying === c.id}Recording…{:else}Record payment{/if}
-								</Button>
-							</form>
-							{#if form?.section === `pay-${c.id}`}
-								<p
-									class={cn(
-										'rounded-md px-3 py-2 text-sm',
-										form.message === 'Payment recorded.'
-											? 'bg-turquoise/15 text-navy'
-											: 'bg-destructive/10 text-destructive'
-									)}
-								>
-									{form.message}
-								</p>
-							{/if}
+								<HandCoins class="size-4" /> Record payment
+							</Button>
 						{/if}
 					</div>
 				{/each}
 			</CardContent>
 		</Card>
+
+		<!-- Monthly statements -->
+		<div class="flex flex-col gap-4">
+			<h2 class="flex items-center gap-2 text-lg font-semibold tracking-tight text-white drop-shadow-sm">
+				<CalendarDays class="size-5" />
+				Monthly statements
+			</h2>				{#if form?.section?.startsWith('sched-') && form.message?.startsWith('Published')}
+					<p class="bg-turquoise/15 rounded-md px-3 py-2 text-sm text-white drop-shadow-sm">
+						{form.message}
+					</p>
+				{/if}			<BillingStatement
+				charges={data.charges}
+				payments={data.payments}
+				billDocs={data.billDocs}
+				canManage
+				leaseId={data.lease.id}
+				{form}
+				printHref={(m) => `/dashboard/billing/statement?month=${m}&lease=${data.lease.id}`}
+				onMonthPay={(m) => {
+					payMonth = m;
+					payCharge = null;
+					payOpen = true;
+				}}
+			/>
+		</div>
 
 		<!-- Payments -->
 		<Card>
@@ -556,7 +688,11 @@
 				<CardDescription>Money arrives outside the app; management records confirmed receipt.</CardDescription>
 			</CardHeader>
 			<CardContent>
-				{#if data.payments.length === 0}
+				{#if data.paymentsError}
+					<p class="bg-destructive/10 text-destructive rounded-md px-3 py-2 text-sm">
+						Could not load payments: {data.paymentsError}
+					</p>
+				{:else if data.payments.length === 0}
 					<p class="text-muted-foreground text-sm">No payments yet.</p>
 				{:else}
 					<ul class="divide-y rounded-md border text-sm">
@@ -570,5 +706,15 @@
 				{/if}
 			</CardContent>
 		</Card>
+
+			<RecordPaymentDialog
+				bind:open={payOpen}
+				charge={payCharge}
+				month={payMonth}
+				charges={data.charges}
+				payments={data.payments}
+				tenantName={data.lease.expand?.tenant?.name || 'Tenant'}
+				today={data.today}
+			/>
 	{/if}
 </div>

@@ -14,6 +14,7 @@
 	--sun: #fbbf24;
 	--gold: #fbbf24;
 	--navy: #16324f;
+	--seafoam: #d9eee7;
 
 	--background: #fff9f0;
 	--foreground: #16324f;
@@ -112,6 +113,7 @@
 	--color-sun: var(--sun);
 	--color-gold: var(--gold);
 	--color-navy: var(--navy);
+	--color-seafoam: var(--seafoam);
 	--radius-sm: calc(var(--radius) - 4px);
 	--radius-md: calc(var(--radius) - 2px);
 	--radius-lg: var(--radius);
@@ -160,4 +162,30 @@
         thead {
                 display: table-header-group; /* repeat table headings on continued pages */
         }
+}
+
+/* Management dashboard: one continuous solid panel — inner cards flatten into
+   padded sections with subtle dividers; the photo background shows only
+   outside the panel. */
+.manage-panel > * {
+        padding: 1.5rem;
+}
+/* !important: must outrank the card-flattening border reset below so card
+   sections keep their divider. */
+.manage-panel > * + * {
+        border-top: 1px solid var(--border) !important;
+}
+.manage-panel [data-slot='card'] {
+        background: transparent;
+        border: none;
+        border-radius: 0;
+        box-shadow: none;
+}
+.manage-panel [data-slot='card'] [data-slot='card-content'],
+.manage-panel [data-slot='card'] [data-slot='card-header'] {
+        padding-inline: 0;
+}
+.manage-panel [data-slot='card'] [data-slot='card-content']:last-child,
+.manage-panel [data-slot='card'] [data-slot='card-header']:first-child {
+        padding-bottom: 0;
 }

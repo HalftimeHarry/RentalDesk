@@ -21,6 +21,7 @@
 	import {
 		CalendarClock,
 		ClipboardList,
+		LayoutDashboard,
 		MessageSquare,
 		Receipt,
 		Users,
@@ -54,12 +55,12 @@
 	<title>Management dashboard — RentalDesk</title>
 </svelte:head>
 
-<div class="flex flex-col gap-6">
-	<div>
-		<h1 class="text-2xl font-bold tracking-tight text-white drop-shadow-sm">
-			{isOwner ? 'Owner' : 'Admin'} dashboard
-		</h1>
-		<p class="text-white/85 drop-shadow-sm">
+<div class="manage-panel bg-card text-card-foreground flex flex-col rounded-xl border shadow-lg">
+        <div>
+				<h1 class="text-navy flex items-center gap-2 text-2xl font-bold tracking-tight">
+					<LayoutDashboard class="text-ocean size-6" />
+                </h1>
+                <p class="text-muted-foreground">
 			{data.settings.unit_name} — management overview.
 		</p>
 	</div>
@@ -74,8 +75,12 @@
 				<CardTitle class="text-2xl">{formatMoney(data.ledger.totalBalance)}</CardTitle>
 			</CardHeader>
 			<CardContent class="flex flex-col gap-3 text-sm">
-				<span class="text-muted-foreground">
-					{data.activeLease ? 'Active lease' : 'No active lease'} · {data.unpaidCharges.length} unpaid
+				<span class={data.leaseError ? 'text-destructive' : 'text-muted-foreground'}>
+					{data.leaseError
+						? `Lease load failed: ${data.leaseError}`
+						: data.activeLease
+							? 'Active lease'
+							: 'No active lease'} · {data.unpaidCharges.length} unpaid
 				</span>
 				<Dialog.Root>
 					<Dialog.Trigger class={buttonVariants({ variant: 'outline', className: 'min-h-12 w-full' })}>
@@ -192,6 +197,7 @@
 		settings={data.settings}
 		today={data.today}
 		{form}
+		depositBilled={data.charges.some((c) => c.type === 'deposit' && c.status === 'published')}
 	/>
 
 	<SettingsCard settings={data.settings} {form} />

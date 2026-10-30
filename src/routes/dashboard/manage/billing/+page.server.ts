@@ -1,8 +1,10 @@
 import { fail, type Actions } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { requireRole } from '$lib/server/guard';
+import { getDefaultLease } from '$lib/server/lease';
 import { computeRentCharge } from '$lib/billing';
-import { summarizeLedger } from '$lib/server/billing';
+import { getLeaseCharges, summarizeLedger } from '$lib/server/billing';
+import { isWithinWindow, publishWindow, laWallToUtcIso, formatLaDateTime } from '$lib/schedule';
 import { parseMoneyToCents } from '$lib/format';
 import { docUrl } from '$lib/files';
 import type { Charge, DocRecord, Lease, Payment, UnitSettings, User } from '$lib/types';
@@ -12,7 +14,7 @@ function pbError(e: unknown): string {
 	return err?.response?.message || err?.message || 'unknown error';
 }
 
-const BILL_KINDS = ['rent_full', 'rent_partial', 'utility_att', 'utility_sdge'] as const;
+const BILL_KINDS = ['rent_full', 'rent_partial', 'utility_att', 'utility_sdge', 'deposit', 'other'] as const;
 type BillKind = (typeof BILL_KINDS)[number];
 
 const UTILITY_LABELS: Record<string, string> = {
@@ -24,14 +26,24 @@ export const load: PageServerLoad = async (event) => {
 	const user = requireRole(event, ['owner', 'admin']);
 	const { pb } = event.locals;
 
-	let lease: Lease | null = null;
+	// Default: active lease if one exists, otherwise the most recent lease — an
+	// ended lease still has charges that must remain visible and payable.
+	const { lease: activeLease, error: leaseError } = await getDefaultLease(pb);
+
+	// Every lease visible to management, for the lease selector. With more than one
+	// active/existing lease, "newest active" is ambiguous — an explicit ?lease=
+	// param always wins.
+	let leases: Lease[] = [];
+	let leasesError: string | null = null;
 	try {
-		lease = (await pb
+		leases = (await pb
 			.collection('leases')
-			.getFirstListItem('status = "active"', { expand: 'tenant' })) as unknown as Lease;
-	} catch {
-		lease = null;
+			.getFullList({ sort: '-created', expand: 'tenant' })) as unknown as Lease[];
+	} catch (e) {
+		leasesError = pbError(e);
 	}
+	const requestedId = event.url.searchParams.get('lease') ?? '';
+	const lease = (requestedId && leases.find((l) => l.id === requestedId)) || activeLease;
 
 	let settings: UnitSettings | null = null;
 	try {
@@ -41,20 +53,24 @@ export const load: PageServerLoad = async (event) => {
 		settings = null;
 	}
 
-	if (!lease) return { user, lease, settings, charges: [], payments: [], ledger: summarizeLedger([], []), billDocs: {}, today: new Date().toISOString().slice(0, 10) };
+	if (!lease)
+		return { user, lease, leaseError, leases, leasesError, settings, charges: [], payments: [], chargesError: null, paymentsError: null, ledger: summarizeLedger([], []), billDocs: {}, today: new Date().toISOString().slice(0, 10) };
 
-	const [charges, payments] = await Promise.all([
-		pb
-			.collection('charges')
-			.getFullList({ filter: `lease = "${lease.id}"`, sort: 'due_date,created' })
-			.then((r) => r as unknown as Charge[])
-			.catch(() => [] as Charge[]),
+	// Surface query failures instead of silently rendering an empty list.
+	// Charges come from the shared loader the tenant view also uses — identical
+	// records and ordering on both sides; drafts included here (management).
+	const [chargesRes, paymentsRes] = await Promise.all([
+		getLeaseCharges(pb, lease.id),
 		pb
 			.collection('payments')
 			.getFullList({ filter: `lease = "${lease.id}"`, sort: '-date' })
-			.then((r) => r as unknown as Payment[])
-			.catch(() => [] as Payment[])
+			.then((r) => ({ ok: true as const, records: r as unknown as Payment[] }))
+			.catch((e) => ({ ok: false as const, error: pbError(e) }))
 	]);
+	const charges = chargesRes.error ? [] : chargesRes.charges;
+	const payments = paymentsRes.ok ? paymentsRes.records : [];
+	const chargesError = chargesRes.error;
+	const paymentsError = paymentsRes.ok ? null : paymentsRes.error;
 
 	// Bill attachments for these charges.
 	const billDocs: Record<string, DocRecord & { url: string }> = {};
@@ -74,9 +90,14 @@ export const load: PageServerLoad = async (event) => {
 	return {
 		user,
 		lease,
+		leaseError,
+		leases,
+		leasesError,
 		settings,
 		charges,
 		payments,
+		chargesError,
+		paymentsError,
 		ledger: summarizeLedger(published, payments),
 		billDocs,
 		today: new Date().toISOString().slice(0, 10)
@@ -232,10 +253,76 @@ export const actions: Actions = {
 				status: publish ? 'published' : 'draft',
 				calc
 			};
+		} else if (kind === 'deposit') {
+			// Security deposit: one charge per lease, amount defaults to the lease requirement.
+			const existingDeposit = await locals.pb
+				.collection('charges')
+				.getFirstListItem(`lease = "${leaseId}" && type = "deposit"`)
+				.catch(() => null);
+			if (existingDeposit) {
+				return fail(400, {
+					section: 'composer',
+					message: 'A security deposit charge already exists for this lease — duplicate prevented.'
+				});
+			}
+			const amount = parseMoneyToCents(form.get('amount')) ?? lease.deposit_cents;
+			if (!amount || amount <= 0) {
+				return fail(400, {
+					section: 'composer',
+					message: 'Deposit amount missing (set it on the lease or enter one).'
+				});
+			}
+			data = {
+				lease: leaseId,
+				type: 'deposit',
+				description: 'Security deposit',
+				amount_cents: amount,
+				due_date: dueDate,
+				period: '',
+				period_start: '',
+				period_end: '',
+				prorated: false,
+				status: publish ? 'published' : 'draft',
+				calc: null
+			};
+		} else if (kind === 'other') {
+			// One-off non-utility charge with a billing month (e.g. credit-check reimbursement).
+			const description = String(form.get('description') ?? '').trim();
+			const amount = parseMoneyToCents(form.get('amount'));
+			const billingMonth = String(form.get('billing_month') ?? '');
+			if (!description) {
+				return fail(400, {
+					section: 'composer',
+					message: 'Enter a description (e.g. Credit-check reimbursement).'
+				});
+			}
+			if (!/^\d{4}-\d{2}$/.test(billingMonth)) {
+				return fail(400, { section: 'composer', message: 'Select the billing month.' });
+			}
+			if (amount === null || amount <= 0) {
+				return fail(400, { section: 'composer', message: 'Enter the amount.' });
+			}
+			data = {
+				lease: leaseId,
+				type: 'other',
+				description,
+				amount_cents: amount,
+				due_date: dueDate,
+				period: billingMonth,
+				period_start: '',
+				period_end: '',
+				prorated: false,
+				status: publish ? 'published' : 'draft',
+				calc: null
+			};
 		} else {
-			// Utilities: manual reimbursement amounts with service period + bill attachment.
+			// Utilities: billing month groups the statement; service period stays text.
 			const amount = parseMoneyToCents(form.get('amount'));
 			const servicePeriod = String(form.get('service_period') ?? '').trim();
+			const billingMonth = String(form.get('billing_month') ?? '');
+			if (!/^\d{4}-\d{2}$/.test(billingMonth)) {
+				return fail(400, { section: 'composer', message: 'Select the billing month.' });
+			}
 			if (amount === null || amount <= 0) {
 				return fail(400, { section: 'composer', message: 'Enter the reimbursement amount.' });
 			}
@@ -248,7 +335,7 @@ export const actions: Actions = {
 				description: `${UTILITY_LABELS[kind]} — service ${servicePeriod}`,
 				amount_cents: amount,
 				due_date: dueDate,
-				period: '',
+				period: billingMonth,
 				period_start: '',
 				period_end: '',
 				prorated: false,
@@ -378,60 +465,182 @@ export const actions: Actions = {
 			return fail(404, { section: `pay-${chargeId}`, message: 'Charge not found.' });
 		}
 
-		// Don't record beyond the remaining balance.
-		const paid = await locals.pb
-			.collection('payments')
-			.getFullList({ filter: `charge = "${chargeId}"` })
-			.then((r) => (r as unknown as Payment[]).reduce((s, p) => s + p.amount_cents, 0))
-			.catch(() => 0);
-		const remaining = charge.amount_cents - paid;
-		if (remaining <= 0) {
-			return fail(400, { section: `pay-${chargeId}`, message: 'This charge is already fully paid.' });
+		// Optional split: alloc-<chargeId> fields allocate the total across charges.
+		const allocs: { id: string; cents: number }[] = [];
+		for (const [key, value] of form.entries()) {
+			if (!key.startsWith('alloc-')) continue;
+			const cents = parseMoneyToCents(value);
+			if (cents === null || cents <= 0) continue;
+			const id = key.slice('alloc-'.length);
+			if (allocs.some((a) => a.id === id)) {
+				return fail(400, { section: `pay-${chargeId}`, message: 'Duplicate allocation row.' });
+			}
+			allocs.push({ id, cents });
 		}
-		if (amount > remaining) {
-			return fail(400, {
-				section: `pay-${chargeId}`,
-				message: `Amount exceeds the remaining balance (${(remaining / 100).toFixed(2)}).`
-			});
-		}
-
-		// Duplicate guard: identical payment on the same charge within the same minute.
-		// (PocketBase stores datetimes with a time component — compare by calendar day.)
-		try {
-			const candidates = (await locals.pb
-				.collection('payments')
-				.getFullList({
-					filter: `charge = "${chargeId}" && amount_cents = ${amount} && method = "${method}"`,
-					sort: '-created'
-				})) as unknown as Payment[];
-			const dup = candidates.find(
-				(p) => String(p.date).slice(0, 10) === date && Date.now() - new Date(p.created).getTime() < 60_000
-			);
-			if (dup) {
+		if (allocs.length > 0) {
+			const sum = allocs.reduce((s, a) => s + a.cents, 0);
+			if (sum !== amount) {
 				return fail(400, {
 					section: `pay-${chargeId}`,
-					message: 'That exact payment was just recorded — duplicate prevented.'
+					message: `Allocations (${(sum / 100).toFixed(2)}) must add up to the payment amount (${(amount / 100).toFixed(2)}).`
 				});
 			}
-		} catch {
-			// no duplicate
+		}
+		const targets = allocs.length > 0 ? allocs : [{ id: chargeId, cents: amount }];
+
+		// Validate EVERY target before writing anything: same lease, published,
+		// remaining-balance cap (no over-allocation), and a per-charge duplicate guard.
+		const prepared: { charge: Charge; cents: number }[] = [];
+		for (const t of targets) {
+			let c: Charge;
+			try {
+				c = (await locals.pb.collection('charges').getOne(t.id)) as unknown as Charge;
+			} catch {
+				return fail(404, { section: `pay-${chargeId}`, message: 'A selected charge was not found.' });
+			}
+			if (c.lease !== charge.lease) {
+				return fail(400, { section: `pay-${chargeId}`, message: 'Charges must belong to the same lease.' });
+			}
+			if (c.status !== 'published') {
+				return fail(400, { section: `pay-${chargeId}`, message: `"${c.description}" is not published.` });
+			}
+			const paid = await locals.pb
+				.collection('payments')
+				.getFullList({ filter: `charge = "${t.id}"` })
+				.then((r) => (r as unknown as Payment[]).reduce((s, p) => s + p.amount_cents, 0))
+				.catch(() => 0);
+			const remaining = c.amount_cents - paid;
+			if (remaining <= 0) {
+				return fail(400, { section: `pay-${chargeId}`, message: `"${c.description}" is already fully paid.` });
+			}
+			if (t.cents > remaining) {
+				return fail(400, {
+					section: `pay-${chargeId}`,
+					message: `Allocation exceeds the remaining balance for "${c.description}" (${(remaining / 100).toFixed(2)}).`
+				});
+			}
+			// Duplicate guard: identical allocation on the same charge within the same minute.
+			// (PocketBase stores datetimes with a time component — compare by calendar day.)
+			try {
+				const candidates = (await locals.pb
+					.collection('payments')
+					.getFullList({
+						filter: `charge = "${t.id}" && amount_cents = ${t.cents} && method = "${method}"`,
+						sort: '-created'
+					})) as unknown as Payment[];
+				const dup = candidates.find(
+					(p) => String(p.date).slice(0, 10) === date && Date.now() - new Date(p.created).getTime() < 60_000
+				);
+				if (dup) {
+					return fail(400, {
+						section: `pay-${chargeId}`,
+						message: `That exact payment was just recorded for "${c.description}" — duplicate prevented.`
+					});
+				}
+			} catch {
+				// no duplicate
+			}
+			prepared.push({ charge: c, cents: t.cents });
 		}
 
 		try {
-			await locals.pb.collection('payments').create({
-				lease: charge.lease,
-				charge: chargeId,
-				amount_cents: amount,
-				date,
-				method,
-				applies_to: charge.type === 'deposit' ? 'deposit' : 'rent',
-				reference,
-				note,
-				recorded_by: user.id
-			});
+			for (const [i, p] of prepared.entries()) {
+				await locals.pb.collection('payments').create({
+					lease: charge.lease,
+					charge: p.charge.id,
+					amount_cents: p.cents,
+					date,
+					method,
+					applies_to: p.charge.type === 'deposit' ? 'deposit' : 'rent',
+					reference,
+					note:
+						prepared.length > 1
+							? `${note ? note + ' · ' : ''}Split payment ${i + 1}/${prepared.length}`
+							: note,
+					recorded_by: user.id
+				});
+			}
 		} catch (e) {
 			return fail(500, { section: `pay-${chargeId}`, message: `Save failed: ${pbError(e)}` });
 		}
-		return { section: `pay-${chargeId}`, message: 'Payment recorded.' };
+		return {
+			section: `pay-${chargeId}`,
+			message:
+				prepared.length > 1 ? `Payment recorded across ${prepared.length} charges.` : 'Payment recorded.'
+		};
+	},
+
+	// Schedule every draft charge of a billing month for later publication.
+	scheduleMonth: async ({ request, locals }) => {
+		const form = await request.formData();
+		const leaseId = String(form.get('lease') ?? '');
+		const month = String(form.get('month') ?? '');
+		const wall = String(form.get('publish_at') ?? ''); // LA wall time from datetime-local
+		if (!leaseId || !/^\d{4}-\d{2}$/.test(month)) {
+			return fail(400, { section: `sched-${month}`, message: 'Billing month is required.' });
+		}
+		if (!isWithinWindow(month, wall)) {
+			return fail(400, {
+				section: `sched-${month}`,
+				message: `Pick a time between the 20th and the last day of the preceding month (${publishWindow(month).label}, Pacific).`
+			});
+		}
+		const publishAt = laWallToUtcIso(wall);
+		const drafts = (await locals.pb
+			.collection('charges')
+			.getFullList({ filter: `lease = "${leaseId}" && period = "${month}" && status = "draft"` })) as unknown as Charge[];
+		if (drafts.length === 0) {
+			return fail(400, { section: `sched-${month}`, message: 'No draft charges for that month.' });
+		}
+		for (const d of drafts) {
+			await locals.pb.collection('charges').update(d.id, { publish_at: publishAt });
+		}
+		return {
+			section: `sched-${month}`,
+			message: `Scheduled: ${drafts.length} charge(s) will publish on ${formatLaDateTime(publishAt)}.`
+		};
+	},
+
+	// Publish every draft charge of a billing month immediately (idempotent).
+	publishMonth: async ({ request, locals }) => {
+		const form = await request.formData();
+		const leaseId = String(form.get('lease') ?? '');
+		const month = String(form.get('month') ?? '');
+		if (!leaseId || !/^\d{4}-\d{2}$/.test(month)) {
+			return fail(400, { section: `sched-${month}`, message: 'Billing month is required.' });
+		}
+		const drafts = (await locals.pb
+			.collection('charges')
+			.getFullList({ filter: `lease = "${leaseId}" && period = "${month}" && status = "draft"` })) as unknown as Charge[];
+		if (drafts.length === 0) {
+			return fail(400, { section: `sched-${month}`, message: 'No draft charges for that month.' });
+		}
+		for (const d of drafts) {
+			await locals.pb.collection('charges').update(d.id, { status: 'published', publish_at: '' });
+		}
+		return {
+			section: `sched-${month}`,
+			message: `Published ${drafts.length} charge(s) — the bill is now visible to the tenant.`
+		};
+	},
+
+	// Cancel a scheduled publication; the bill stays a draft indefinitely.
+	cancelScheduleMonth: async ({ request, locals }) => {
+		const form = await request.formData();
+		const leaseId = String(form.get('lease') ?? '');
+		const month = String(form.get('month') ?? '');
+		if (!leaseId || !/^\d{4}-\d{2}$/.test(month)) {
+			return fail(400, { section: `sched-${month}`, message: 'Billing month is required.' });
+		}
+		const drafts = (await locals.pb
+			.collection('charges')
+			.getFullList({ filter: `lease = "${leaseId}" && period = "${month}" && status = "draft"` })) as unknown as Charge[];
+		for (const d of drafts) {
+			await locals.pb.collection('charges').update(d.id, { publish_at: '' });
+		}
+		return {
+			section: `sched-${month}`,
+			message: 'Schedule canceled — the bill remains a draft until you publish it.'
+		};
 	}
 };
