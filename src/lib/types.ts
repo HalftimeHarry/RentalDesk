@@ -120,6 +120,7 @@ export interface MaintenanceRequest {
 	title: string;
 	description: string;
 	status: MaintenanceStatus;
+	photos: string[]; // PocketBase stored filenames (protected multi-image field)
 	created: string;
 	updated: string;
 	expand?: { requester?: User };
@@ -161,6 +162,31 @@ export interface Inspection {
 	created: string;
 	updated: string;
 	expand?: { created_by?: User; lease?: Lease };
+}
+
+export type MoveOutNoticeStatus = 'submitted' | 'acknowledged';
+
+export interface MoveOutNotice {
+	id: string;
+	lease: string; // relation -> leases.id
+	tenant: string; // relation -> users.id
+	tenant_names: string; // snapshot at submission
+	property_address: string; // snapshot
+	unit: string; // snapshot
+	requested_date: string; // YYYY-MM-DD — requested, never auto-approved
+	forwarding_address: string;
+	notes: string;
+	signer_name: string; // typed confirmation
+	submitted_at: string; // server timestamp
+	notice_pdf: string; // protected file — frozen PDF copy
+	status: MoveOutNoticeStatus;
+	acknowledged_at: string;
+	acknowledged_by: string; // relation -> users.id
+	agreed_termination_date: string; // recorded separately by management
+	supersedes: string; // -> move_out_notices.id when this is a correction
+	client_token: string; // idempotency key (double-click safe submit)
+	created: string;
+	expand?: { tenant?: User };
 }
 
 export interface Message {

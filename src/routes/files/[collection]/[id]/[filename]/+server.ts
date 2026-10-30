@@ -18,7 +18,10 @@ export const GET: RequestHandler = async (event) => {
 	const user = event.locals.user;
 	if (!user) error(401, 'Sign in required.');
 	const collection = event.params.collection;
-	if (collection !== 'documents' && collection !== 'inspections') error(404, 'Not found.');
+	const allowed = ['documents', 'inspections', 'maintenance_requests', 'move_out_notices'];
+	if (!allowed.includes(collection)) {
+		error(404, 'Not found.');
+	}
 
 	const token = await event.locals.pb.files.getToken();
 	// Optional PocketBase thumbnail (only for image files; validated format).

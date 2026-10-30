@@ -25,16 +25,18 @@
 		Calculator,
 		CalendarDays,
 		CircleDollarSign,
+		Eye,
 		FileText,
 		HandCoins,
-		Hourglass,
+		LayoutList,
+		List,
 		Receipt,
 		ShieldCheck,
 		Upload,
 		Zap
 	} from '@lucide/svelte';
 	import type { Charge, Lease, Payment } from '$lib/types';
-	import { billStatus } from '$lib/billing';
+	import { billStatus, monthLabel } from '$lib/billing';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -122,6 +124,76 @@
 		return `${monthly}/mo · ${calc.billable_days} days`;
 	}
 
+	/** Split a rendered string into plain-text and dollar-figure segments for styling. */
+	function splitMoney(text: string): { text: string; money: boolean }[] {
+		return text
+			.split(/(\$[\d,]+(?:\.\d+)?)/g)
+			.filter(Boolean)
+			.map((part) => ({ text: part, money: part.startsWith('$') }));
+	}
+
+	// ---- charges list view filter (display only — never alters charge data) ----
+	let chargeFilter = $state<'all' | 'published' | 'drafts'>('published');
+	let chargeFilters = $derived([
+		{ value: 'all' as const, label: 'All', count: data.charges.length },
+		{
+			value: 'published' as const,
+			label: 'Published — Tenant sees',
+			count: data.charges.filter((c) => c.status === 'published').length
+		},
+		{
+			value: 'drafts' as const,
+			label: 'Drafts — Admin only',
+			count: data.charges.filter((c) => c.status === 'draft').length
+		}
+	]);
+	let visibleCharges = $derived(
+		chargeFilter === 'all'
+			? data.charges
+			: data.charges.filter((c) =>
+					chargeFilter === 'published' ? c.status === 'published' : c.status === 'draft'
+				)
+	);
+
+	// ---- detailed / simple view toggle (display only) ----
+	let chargeView = $state<'detailed' | 'simple'>('simple');
+	const chargeViews = [
+		{ value: 'detailed' as const, label: 'Detailed', icon: LayoutList },
+		{ value: 'simple' as const, label: 'Simple', icon: List }
+	];
+	// Simple view: same filtered charges, largest remaining first. Drafts are
+	// excluded from the published balance and totalled separately below.
+	let simpleRows = $derived(
+		visibleCharges
+			.map((c) => ({ c, remaining: remainingOf(c) }))
+			.sort((a, b) => b.remaining - a.remaining)
+	);
+	let simplePublishedTotal = $derived(
+		simpleRows.filter((r) => r.c.status === 'published').reduce((s, r) => s + r.remaining, 0)
+	);
+	let simpleDraftTotal = $derived(
+		simpleRows.filter((r) => r.c.status === 'draft').reduce((s, r) => s + r.remaining, 0)
+	);
+	let simpleHasPublished = $derived(simpleRows.some((r) => r.c.status === 'published'));
+	let simpleHasDrafts = $derived(simpleRows.some((r) => r.c.status === 'draft'));
+
+	// "Display draft bills": view-only — selects the Drafts filter and scrolls the
+	// charges list into view. Never publishes or modifies anything.
+	function showDraftBills() {
+		chargeFilter = 'drafts';
+		document.getElementById('charges')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+	}
+
+	// Security deposit tile: progress state from the lease requirement vs. recorded
+	// deposit payments. Color is only a cue — the card spells the state out in words.
+	let depositState = $derived.by((): 'none' | 'partial' | 'full' => {
+		const required = data.lease?.deposit_cents ?? 0;
+		const paid = data.ledger.depositPaid;
+		if (required > 0 && paid <= 0) return 'none';
+		if (paid >= required) return 'full';
+		return 'partial';
+	});
+
 	let paying = $state('');
 	let payOpen = $state(false);
 	let payCharge: Charge | null = $state(null);
@@ -141,12 +213,12 @@
 	<title>Billing — RentalDesk</title>
 </svelte:head>
 
-<div class="flex flex-col gap-6">
+<div class="manage-panel bg-card text-card-foreground mb-6 flex flex-col rounded-xl border shadow-lg">
 	<div class="flex flex-wrap items-center gap-2">
 		<Button href="/dashboard/manage" variant="outline" size="sm">
 			<ArrowLeft class="size-4" /> Management
 		</Button>
-		<h1 class="text-2xl font-bold tracking-tight text-white drop-shadow-sm">Billing</h1>
+		<h1 class="text-navy text-2xl font-bold tracking-tight">Billing</h1>
 	</div>
 
 	{#if data.leasesError}
@@ -156,7 +228,7 @@
 	{/if}
 	{#if data.leases.length > 1}
 		<div class="flex flex-wrap items-center gap-2">
-			<Label for="lease-picker" class="text-white/85 drop-shadow-sm">Lease</Label>
+			<Label for="lease-picker" class="text-navy">Lease</Label>
 			<Select.Root
 				type="single"
 				value={data.lease?.id ?? ''}
@@ -186,18 +258,18 @@
 		</Card>
 	{:else}
 		<div>
-			<p class="text-white/85 drop-shadow-sm">
+			<p class="text-navy font-medium">
 				{data.lease.expand?.tenant?.name || 'Tenant'} · {formatDate(data.lease.start_date)} –{' '}
 				{formatDate(data.lease.end_date)} · {formatMoney(data.lease.monthly_rent_cents)}/month
 			</p>
 		</div>
 
 		<!-- Summary -->
-		<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-			<Card>
+		<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+			<Card class="tile bg-sky-100!">
 				<CardHeader class="pb-2">
 					<CardDescription class="flex items-center gap-1.5">
-						<CircleDollarSign class="text-turquoise size-4" /> Balance due (published)
+						<CircleDollarSign class="text-sky-600 size-4" /> Balance due (published)
 					</CardDescription>
 					<CardTitle class="text-2xl">{formatMoney(data.ledger.totalBalance)}</CardTitle>
 				</CardHeader>
@@ -211,60 +283,95 @@
 					{/if}
 				</CardContent>
 			</Card>
-			<Card>
+			<Card
+				class={cn(
+					'tile',
+					depositState === 'none'
+						? 'bg-red-100!'
+						: depositState === 'partial'
+							? 'bg-amber-100!'
+							: 'bg-emerald-100!'
+				)}
+			>
 				<CardHeader class="pb-2">
 					<CardDescription class="flex items-center gap-1.5">
-						<ShieldCheck class="text-ocean size-4" /> Deposit required (lease)
-					</CardDescription>
-					<CardTitle class="text-2xl">{formatMoney(data.lease.deposit_cents)}</CardTitle>
-				</CardHeader>
-			</Card>
-			<Card>
-				<CardHeader class="pb-2">
-					<CardDescription class="flex items-center gap-1.5">
-						<HandCoins class="text-turquoise size-4" /> Deposit received
-					</CardDescription>
-					<CardTitle class="text-2xl">{formatMoney(data.ledger.depositPaid)}</CardTitle>
-				</CardHeader>
-			</Card>
-			<Card>
-				<CardHeader class="pb-2">
-					<CardDescription class="flex items-center gap-1.5">
-						<Hourglass class="text-coral size-4" /> Deposit remaining
+						<ShieldCheck
+							class={cn(
+								'size-4',
+								depositState === 'none'
+									? 'text-red-700'
+									: depositState === 'partial'
+										? 'text-amber-600'
+										: 'text-emerald-600'
+							)}
+						/> Security deposit
 					</CardDescription>
 					<CardTitle class="text-2xl">
 						{formatMoney(Math.max(0, data.lease.deposit_cents - data.ledger.depositPaid))}
 					</CardTitle>
+					<CardDescription>
+						<span
+							class={cn(
+								'font-medium',
+								depositState === 'none'
+									? 'text-red-700'
+									: depositState === 'partial'
+										? 'text-amber-700'
+										: 'text-emerald-700'
+							)}
+						>{depositState === 'none'
+							? 'No deposit received yet'
+							: depositState === 'partial'
+								? 'Partially received'
+								: 'Received in full'}</span>
+						{' '}· remaining of the lease requirement
+					</CardDescription>
 				</CardHeader>
+				<CardContent class="flex flex-col gap-1 pt-0 text-sm">
+					<div class="flex items-center justify-between gap-2">
+						<span class="text-muted-foreground">Required (lease)</span>
+						<span class="text-navy font-medium tabular-nums">
+							{formatMoney(data.lease.deposit_cents)}
+						</span>
+					</div>
+					<div class="flex items-center justify-between gap-2">
+						<span class="text-muted-foreground">Received</span>
+						<span class="text-navy font-medium tabular-nums">
+							{formatMoney(data.ledger.depositPaid)}
+						</span>
+					</div>
+					<div class="border-navy/10 mt-1 flex items-center justify-between gap-2 border-t pt-1.5">
+						<span class="text-navy font-medium">Remaining</span>
+						<span class="text-navy font-semibold tabular-nums">
+							{formatMoney(Math.max(0, data.lease.deposit_cents - data.ledger.depositPaid))}
+						</span>
+					</div>
+				</CardContent>
 			</Card>
-			<Card>
+			<Card class="tile bg-yellow-100!">
 				<CardHeader class="pb-2">
 					<CardDescription class="flex items-center gap-1.5">
-						<Receipt class="text-coral size-4" /> Drafts (management-only)
+						<Receipt class="text-amber-500 size-4" /> Drafts (management-only)
 					</CardDescription>
 					<CardTitle class="text-2xl">
 						{data.charges.filter((c) => c.status === 'draft').length}
 					</CardTitle>
 				</CardHeader>
-				<CardContent class="text-muted-foreground pt-0 text-xs">
-					draft total{' '}
-					{formatMoney(
-						data.charges
-							.filter((c) => c.status === 'draft')
-							.reduce((s, c) => s + c.amount_cents, 0)
-					)}
+				<CardContent class="flex flex-col gap-3 pt-0">
+					<p class="text-muted-foreground text-xs">
+						draft total{' '}
+						{formatMoney(
+							data.charges
+								.filter((c) => c.status === 'draft')
+								.reduce((s, c) => s + c.amount_cents, 0)
+						)}
+					</p>
+					<Button variant="outline" size="sm" class="min-h-12 w-full" onclick={showDraftBills}>
+						<Eye class="size-4" /> Display draft bills
+					</Button>
 				</CardContent>
 			</Card>
 		</div>
-
-		{#if data.lease.deposit_cents > 0 && !data.charges.some((c) => c.type === 'deposit' && c.status === 'published')}
-			<p class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-				<ShieldCheck class="mr-1 inline size-4 align-text-bottom" />
-				Deposit not yet billed — the lease requires {formatMoney(data.lease.deposit_cents)}. Add it
-				from the composer (Security deposit) when you're ready to bill it; nothing is created
-				automatically.
-			</p>
-		{/if}
 
 		<!-- New charge -->
 		<Card>
@@ -278,6 +385,14 @@
 				</CardDescription>
 			</CardHeader>
 			<CardContent>
+				{#if data.lease.deposit_cents > 0 && !data.charges.some((c) => c.type === 'deposit' && c.status === 'published')}
+					<p class="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+						<ShieldCheck class="mr-1 inline size-4 align-text-bottom" />
+						Deposit not yet billed — the lease requires {formatMoney(data.lease.deposit_cents)}. Add it
+						from the composer (Security deposit) when you're ready to bill it; nothing is created
+						automatically.
+					</p>
+				{/if}
 				{#if form?.section === 'composer'}
 					<p
 						class={cn(
@@ -553,12 +668,60 @@
 		</Card>
 
 		<!-- Charges -->
-		<Card>
-			<CardHeader>
-				<CardTitle class="flex items-center gap-2">
-					<Receipt class="text-ocean size-5" /> Charges
-				</CardTitle>
-				<CardDescription>Drafts are visible to management only.</CardDescription>
+		<Card id="charges">
+			<CardHeader class="flex flex-wrap items-center justify-between gap-3">
+				<div class="flex flex-col gap-1.5">
+					<CardTitle class="flex items-center gap-2">
+						<Receipt class="text-ocean size-5" /> Charges
+					</CardTitle>
+					<CardDescription>Drafts are visible to management only.</CardDescription>
+				</div>
+				<div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+					<div class="flex flex-wrap gap-1" role="group" aria-label="Charge view">
+						{#each chargeViews as v (v.value)}
+							{@const VIcon = v.icon}
+							<button
+								type="button"
+								onclick={() => (chargeView = v.value)}
+								aria-pressed={chargeView === v.value}
+								class={cn(
+									'flex min-h-9 items-center gap-1.5 rounded-md border px-3 text-sm font-medium transition-colors',
+									chargeView === v.value
+										? 'border-ocean bg-ocean text-white shadow-sm'
+										: 'border-navy/15 bg-white text-navy hover:bg-seafoam/60'
+								)}
+							>
+								<VIcon class="size-4" />
+								{v.label}
+							</button>
+						{/each}
+					</div>
+					<div class="flex flex-wrap gap-1" role="group" aria-label="Filter charges">
+						{#each chargeFilters as f (f.value)}
+						<button
+							type="button"
+							onclick={() => (chargeFilter = f.value)}
+							aria-pressed={chargeFilter === f.value}
+							class={cn(
+								'flex min-h-9 items-center gap-1.5 rounded-md border px-3 text-sm font-medium transition-colors',
+								chargeFilter === f.value
+									? 'border-ocean bg-ocean text-white shadow-sm'
+									: 'border-navy/15 bg-white text-navy hover:bg-seafoam/60'
+							)}
+						>
+							{f.label}
+							<span
+								class={cn(
+									'rounded-full px-1.5 py-0.5 text-xs font-semibold',
+									chargeFilter === f.value ? 'bg-white/20 text-white' : 'bg-muted text-navy'
+								)}
+							>
+								{f.count}
+							</span>
+							</button>
+						{/each}
+					</div>
+				</div>
 			</CardHeader>
 			<CardContent class="flex flex-col gap-4">
 				{#if form?.section === 'charges'}
@@ -571,11 +734,20 @@
 				{:else if data.charges.length === 0}
 					<p class="text-muted-foreground text-sm">No charges yet.</p>
 				{/if}
-				{#each data.charges as c (c.id)}
+				{#if data.charges.length > 0 && visibleCharges.length === 0}
+					<p class="text-muted-foreground text-sm">
+						No {chargeFilter === 'published' ? 'published' : 'draft'} charges.
+					</p>
+				{/if}
+				{#if visibleCharges.length > 0}
+				{#if chargeView === 'detailed'}
+				<div class="divide-y overflow-hidden rounded-xl border">
+				{#each visibleCharges as c (c.id)}
 					{@const st = statusOf(c)}
 					{@const paid = paidFor(c)}
 					{@const remaining = remainingOf(c)}
-					<div class="flex flex-col gap-3 rounded-xl border p-4">
+					{@const summary = calcSummary(c)}
+					<div class="flex flex-col gap-3 p-5 odd:bg-white even:bg-sky-50">
 						<div class="flex flex-wrap items-center justify-between gap-2">
 							<div>
 								<p class="font-medium">
@@ -596,18 +768,20 @@
 								</span>
 							</div>
 						</div>
-						{#if calcSummary(c)}
-							<p class="text-muted-foreground bg-muted rounded px-2 py-1 text-xs">{calcSummary(c)}</p>
+						{#if summary}
+							<p class="text-muted-foreground bg-muted rounded px-2 py-1 text-xs">
+								{#each splitMoney(summary) as seg}{#if seg.money}<span class="text-[#B91C1C]">{seg.text}</span>{:else}{seg.text}{/if}{/each}
+							</p>
 						{/if}
 						{#if c.calc?.override}
 							<p class="text-muted-foreground text-xs">
-								Manual override: {formatMoney(c.calc.override.amount_cents)} — {c.calc.override.reason}
+								Manual override: <span class="text-[#B91C1C]">{formatMoney(c.calc.override.amount_cents)}</span> — {c.calc.override.reason}
 							</p>
 						{/if}
 						<p class="text-sm">
-							<strong>{formatMoney(c.amount_cents)}</strong>
+							<strong class="text-[#B91C1C]">{formatMoney(c.amount_cents)}</strong>
 							<span class="text-muted-foreground">
-								· paid {formatMoney(paid)} · remaining {formatMoney(remaining)}
+								· paid <span class="text-[#B91C1C]">{formatMoney(paid)}</span> · remaining <span class="text-[#B91C1C]">{formatMoney(remaining)}</span>
 							</span>
 						</p>
 						{#if data.billDocs[c.id]}
@@ -651,16 +825,83 @@
 						{/if}
 					</div>
 				{/each}
+				</div>
+				{:else}
+				<!-- Simple view: itemized like the tenant account balance. -->
+				<ul class="flex flex-col">
+					{#each simpleRows as r (r.c.id)}
+						<li class="flex flex-wrap items-center gap-x-3 gap-y-2 py-2.5">
+							<span class="min-w-0 flex-1 text-sm">
+								<span class="font-medium">{r.c.description}</span>
+								{#if r.c.period}
+									<span class="text-muted-foreground"> · {monthLabel(r.c.period)}</span>
+								{/if}
+								{#if r.c.status === 'draft'}
+									<span class="ml-1.5 rounded bg-amber-200 px-1.5 py-0.5 align-middle text-[11px] font-semibold text-amber-900">Draft</span>
+								{/if}
+							</span>
+							<span class="shrink-0 text-sm font-medium tabular-nums text-[#B91C1C]">
+								{formatMoney(r.remaining)}
+							</span>
+							{#if r.c.status === 'draft'}
+								<span class="flex gap-1">
+									<form method="POST" action="?/publishCharge" use:enhance>
+										<input type="hidden" name="id" value={r.c.id} />
+										<Button type="submit" size="sm" class="min-h-9">Publish</Button>
+									</form>
+									<form method="POST" action="?/deleteDraft" use:enhance>
+										<input type="hidden" name="id" value={r.c.id} />
+										<Button type="submit" size="sm" variant="destructive" class="min-h-9">Delete</Button>
+									</form>
+								</span>
+							{:else if r.remaining > 0}
+								<Button
+									size="sm"
+									variant="outline"
+									class="min-h-9"
+									onclick={() => {
+										payCharge = r.c;
+										payMonth = null;
+										payOpen = true;
+									}}
+								>
+									Record payment
+								</Button>
+							{/if}
+						</li>
+					{/each}
+				</ul>
+				<hr class="border-border my-3" />
+				<div class="flex flex-col gap-1">
+					{#if simpleHasPublished}
+						<div class="flex items-center justify-between gap-3">
+							<span class="text-sm font-semibold">Published balance</span>
+							<span class="text-navy text-lg font-bold tabular-nums">
+								{formatMoney(simplePublishedTotal)}
+							</span>
+						</div>
+					{/if}
+					{#if simpleHasDrafts}
+						<div class="flex items-center justify-between gap-3">
+							<span class="text-muted-foreground text-sm">Drafts total (not in balance)</span>
+							<span class="text-muted-foreground text-sm font-semibold tabular-nums">
+								{formatMoney(simpleDraftTotal)}
+							</span>
+						</div>
+					{/if}
+				</div>
+				{/if}
+				{/if}
 			</CardContent>
 		</Card>
 
 		<!-- Monthly statements -->
 		<div class="flex flex-col gap-4">
-			<h2 class="flex items-center gap-2 text-lg font-semibold tracking-tight text-white drop-shadow-sm">
+			<h2 class="text-navy flex items-center gap-2 text-lg font-semibold tracking-tight">
 				<CalendarDays class="size-5" />
 				Monthly statements
 			</h2>				{#if form?.section?.startsWith('sched-') && form.message?.startsWith('Published')}
-					<p class="bg-turquoise/15 rounded-md px-3 py-2 text-sm text-white drop-shadow-sm">
+					<p class="bg-turquoise/15 text-navy rounded-md px-3 py-2 text-sm">
 						{form.message}
 					</p>
 				{/if}			<BillingStatement

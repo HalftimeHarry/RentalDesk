@@ -89,47 +89,62 @@
 				<Dialog.Title class="flex items-center gap-2">
 					Lease — {lease.expand?.tenant?.name || lease.expand?.tenant?.email || 'Tenant'}
 				</Dialog.Title>
-				<Dialog.Description>Signed lease storage and lease terms.</Dialog.Description>
+				<Dialog.Description>The original signed lease PDF and a summary of the lease terms.</Dialog.Description>
 			</Dialog.Header>
 
 			<div class="mt-4 flex flex-col gap-5">
-				<!-- Lease details -->
-				<div class="grid grid-cols-2 gap-3 text-sm">
+				<!-- Lease summary (reference only — the signed PDF below is the agreement) -->
+				<div class="flex flex-col gap-2">
 					<div>
-						<p class="text-muted-foreground">Status</p>
-						<StatusBadge status={lease.status} />
+						<p class="text-sm font-medium">Lease summary</p>
+						<p class="text-muted-foreground text-xs">
+							Quick reference — the signed lease PDF below is the agreement.
+						</p>
 					</div>
-					<div>
-						<p class="text-muted-foreground">Tenant</p>
-						<p class="font-medium">{lease.expand?.tenant?.name || '—'}</p>
-					</div>
-					<div>
-						<p class="text-muted-foreground">Start</p>
-						<p class="font-medium">{formatDate(lease.start_date)}</p>
-					</div>
-					<div>
-						<p class="text-muted-foreground">End</p>
-						<p class="font-medium">{formatDate(lease.end_date)}</p>
-					</div>
-					<div>
-						<p class="text-muted-foreground">Monthly rent</p>
-						<p class="font-medium">{formatMoney(lease.monthly_rent_cents)}</p>
-					</div>
-					<div>
-						<p class="text-muted-foreground">Security deposit</p>
-						<p class="font-medium">{formatMoney(lease.deposit_cents)}</p>
+					<div class="grid grid-cols-2 gap-3 text-sm">
+						<div>
+							<p class="text-muted-foreground">Status</p>
+							<StatusBadge status={lease.status} />
+						</div>
+						<div>
+							<p class="text-muted-foreground">Tenant</p>
+							<p class="font-medium">{lease.expand?.tenant?.name || '—'}</p>
+						</div>
+						<div>
+							<p class="text-muted-foreground">Start</p>
+							<p class="font-medium">{formatDate(lease.start_date)}</p>
+						</div>
+						<div>
+							<p class="text-muted-foreground">End</p>
+							<p class="font-medium">{formatDate(lease.end_date)}</p>
+						</div>
+						<div>
+							<p class="text-muted-foreground">Monthly rent</p>
+							<p class="font-medium">{formatMoney(lease.monthly_rent_cents)}</p>
+						</div>
+						<div>
+							<p class="text-muted-foreground">Security deposit</p>
+							<p class="font-medium">{formatMoney(lease.deposit_cents)}</p>
+						</div>
 					</div>
 				</div>
 
 				<!-- Signed lease -->
 				<div class="flex flex-col gap-3 rounded-lg border p-4">
-					<p class="flex items-center gap-2 text-sm font-medium">
-						<FileText class="text-gold size-4" /> Signed lease PDF
-					</p>
+					<div>
+						<p class="flex items-center gap-2 text-sm font-medium">
+							<FileText class="text-gold size-4" /> Signed lease PDF
+						</p>
+						<p class="text-muted-foreground mt-0.5 text-xs">
+							Original uploaded PDF signed by landlord and tenant.
+						</p>
+					</div>
 
 					{#if current}
 						<div class="flex flex-col gap-1 text-sm">
-							<p class="font-medium">{current.title}</p>
+							<p class="flex items-center gap-1.5 font-medium">
+								<FileText class="text-muted-foreground size-4 shrink-0" />{current.title}
+							</p>
 							<p class="text-muted-foreground text-xs">
 								Uploaded {formatDate(current.created)}
 								{versions.length > 0 ? `· ${versions.length} earlier version${versions.length === 1 ? '' : 's'} kept` : ''}
@@ -142,7 +157,7 @@
 								class="min-h-12"
 								onclick={() => (previewOpen = !previewOpen)}
 							>
-								<Eye class="size-4" /> {previewOpen ? 'Hide preview' : 'Preview'}
+								<Eye class="size-4" /> {previewOpen ? 'Hide view' : 'View'}
 							</Button>
 							<Button
 								href={docUrl(current.id, current.file)}
@@ -172,7 +187,7 @@
 							></iframe>
 						{/if}
 					{:else}
-						<p class="text-muted-foreground text-sm">No signed lease uploaded yet.</p>
+						<p class="text-muted-foreground text-sm">Signed lease PDF not uploaded yet.</p>
 					{/if}
 
 					{#if canManage}

@@ -168,7 +168,9 @@ function collectionDefs(usersId, applicationsId, leasesId, inspectionsId, charge
 				{ name: 'requester', type: 'relation', required: true, collectionId: usersId, maxSelect: 1, cascadeDelete: true },
 				{ name: 'title', type: 'text', required: true, max: 200 },
 				{ name: 'description', type: 'text', required: true, max: 5000 },
-				{ name: 'status', type: 'select', required: true, maxSelect: 1, values: ['open', 'in_progress', 'resolved'] }
+				{ name: 'status', type: 'select', required: true, maxSelect: 1, values: ['open', 'in_progress', 'resolved'] },
+				// Tenant photo attachments — protected; served via /files/maintenance_requests/...
+				{ name: 'photos', type: 'file', required: false, maxSelect: 6, maxSize: 5242880, protected: true, mimeTypes: ['image/jpeg', 'image/png', 'image/webp'], thumbs: ['100x100', '300x300', '1024x1024'] }
 			],
 			listRule: `requester = @request.auth.id || ${STAFF}`,
 			viewRule: `requester = @request.auth.id || ${STAFF}`,
@@ -251,6 +253,34 @@ function collectionDefs(usersId, applicationsId, leasesId, inspectionsId, charge
 			listRule: '',
 			viewRule: '',
 			createRule: STAFF,
+			updateRule: STAFF,
+			deleteRule: STAFF
+		},
+		{
+			name: 'move_out_notices',
+			type: 'base',
+			fields: [
+				{ name: 'lease', type: 'relation', required: true, collectionId: leasesId, maxSelect: 1, cascadeDelete: false },
+				{ name: 'tenant', type: 'relation', required: true, collectionId: usersId, maxSelect: 1, cascadeDelete: false },
+				{ name: 'tenant_names', type: 'text', required: true, max: 300 },
+				{ name: 'property_address', type: 'text', required: true, max: 300 },
+				{ name: 'unit', type: 'text', max: 50 },
+				{ name: 'requested_date', type: 'date', required: true },
+				{ name: 'forwarding_address', type: 'text', max: 300 },
+				{ name: 'notes', type: 'text', max: 2000 },
+				{ name: 'signer_name', type: 'text', required: true, max: 200 },
+				{ name: 'submitted_at', type: 'date', required: true },
+				{ name: 'notice_pdf', type: 'file', maxSelect: 1, maxSize: 2097152, protected: true, mimeTypes: ['application/pdf'] },
+				{ name: 'status', type: 'select', required: true, maxSelect: 1, values: ['submitted', 'acknowledged'] },
+				{ name: 'acknowledged_at', type: 'date' },
+				{ name: 'acknowledged_by', type: 'relation', collectionId: usersId, maxSelect: 1, cascadeDelete: false },
+				// Recorded separately from requested_date — never auto-approved.
+				{ name: 'agreed_termination_date', type: 'date' },
+				{ name: 'client_token', type: 'text', max: 64 }
+			],
+			listRule: `tenant = @request.auth.id || ${STAFF}`,
+			viewRule: `tenant = @request.auth.id || ${STAFF}`,
+			createRule: '@request.auth.role = "tenant" && @request.body.tenant = @request.auth.id',
 			updateRule: STAFF,
 			deleteRule: STAFF
 		}
@@ -365,6 +395,21 @@ for (const def of collectionDefs(usersId, applicationsId, leasesId, inspectionsI
 			]
 		});
 		console.log('updated  inspections (+revision_of)');
+	}
+}
+
+// Self-referencing correction link for move-out notices (a correction is a new
+// version; the submitted original is never modified).
+{
+	const monCol = await pb.collections.getOne('move_out_notices');
+	if (!(monCol.fields || []).some((f) => f.name === 'supersedes')) {
+		await pb.collections.update(monCol.id, {
+			fields: [
+				...(monCol.fields || []),
+				{ name: 'supersedes', type: 'relation', collectionId: monCol.id, maxSelect: 1, cascadeDelete: false }
+			]
+		});
+		console.log('updated  move_out_notices (+supersedes)');
 	}
 }
 

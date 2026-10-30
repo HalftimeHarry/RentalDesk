@@ -175,17 +175,19 @@
 .manage-panel > * + * {
         border-top: 1px solid var(--border) !important;
 }
-.manage-panel [data-slot='card'] {
+/* Cards marked .tile (e.g. the tinted billing summary tiles) keep their own
+   background, border, radius, shadow, and inner padding inside the panel. */
+.manage-panel [data-slot='card']:not(.tile) {
         background: transparent;
         border: none;
         border-radius: 0;
         box-shadow: none;
 }
-.manage-panel [data-slot='card'] [data-slot='card-content'],
-.manage-panel [data-slot='card'] [data-slot='card-header'] {
+.manage-panel [data-slot='card']:not(.tile) [data-slot='card-content'],
+.manage-panel [data-slot='card']:not(.tile) [data-slot='card-header'] {
         padding-inline: 0;
 }
-.manage-panel [data-slot='card'] [data-slot='card-content']:last-child,
-.manage-panel [data-slot='card'] [data-slot='card-header']:first-child {
+.manage-panel [data-slot='card']:not(.tile) [data-slot='card-content']:last-child,
+.manage-panel [data-slot='card']:not(.tile) [data-slot='card-header']:first-child {
         padding-bottom: 0;
 }

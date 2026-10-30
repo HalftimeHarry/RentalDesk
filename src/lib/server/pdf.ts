@@ -1,0 +1,73 @@
+/**
+ * Minimal single-page PDF writer (standard Helvetica, no dependencies) used to
+ * freeze the submitted move-out notice as a fixed PDF copy. Text is sanitized
+ * to ASCII so byte offsets stay exact.
+ */
+
+function clean(s: string): string {
+	return s
+		.replace(/[—–]/g, '-')
+		.replace(/·/g, '*')
+		.replace(/[“”]/g, '"')
+		.replace(/[‘’]/g, "'")
+		.replace(/[^\x20-\x7E]/g, '');
+}
+
+function escapePdfText(s: string): string {
+	return s.replace(/([\\()])/g, '\\$1');
+}
+
+/** Wrap to ~88 chars so lines fit the 10pt body width. */
+function wrap(line: string, maxChars = 88): string[] {
+	if (line === '') return [''];
+	const out: string[] = [];
+	let rest = line;
+	while (rest.length > maxChars) {
+		let cut = rest.lastIndexOf(' ', maxChars);
+		if (cut < 40) cut = maxChars;
+		out.push(rest.slice(0, cut));
+		rest = rest.slice(cut + 1);
+	}
+	out.push(rest);
+	return out;
+}
+
+/**
+ * Build a one-page PDF: bold 16pt title, then 10pt body lines (blank string =
+ * blank line). Content is clamped to what fits on a single page.
+ */
+export function buildNoticePdf(title: string, lines: string[]): Uint8Array {
+	const parts: string[] = [`BT /F2 16 Tf 72 730 Td (${escapePdfText(clean(title))}) Tj ET`];
+	let y = 706;
+	for (const raw of lines) {
+		for (const line of wrap(clean(raw))) {
+			if (y < 60) break; // single page: stop before running off the sheet
+			if (line !== '') {
+				parts.push(`BT /F1 10 Tf 72 ${y} Td (${escapePdfText(line)}) Tj ET`);
+			}
+			y -= 14;
+		}
+	}
+	const content = parts.join('\n');
+
+	const objects = [
+		'<< /Type /Catalog /Pages 2 0 R >>',
+		'<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+		'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R /F2 5 0 R >> >> /Contents 6 0 R >>',
+		'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+		'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>',
+		`<< /Length ${content.length} >>\nstream\n${content}\nendstream`
+	];
+
+	let pdf = '%PDF-1.4\n';
+	const offsets: number[] = [];
+	objects.forEach((body, i) => {
+		offsets.push(pdf.length); // all-ASCII: string length equals byte offset
+		pdf += `${i + 1} 0 obj\n${body}\nendobj\n`;
+	});
+	const xrefPos = pdf.length;
+	pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+	for (const off of offsets) pdf += `${String(off).padStart(10, '0')} 00000 n \n`;
+	pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefPos}\n%%EOF`;
+	return new TextEncoder().encode(pdf);
+}

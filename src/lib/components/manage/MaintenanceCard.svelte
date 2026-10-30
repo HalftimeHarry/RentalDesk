@@ -12,6 +12,7 @@
 	} from '$lib/components/ui/card';
 	import * as Select from '$lib/components/ui/select';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
+	import MaintenancePhotos from '$lib/components/MaintenancePhotos.svelte';
 	import { formatDate } from '$lib/format';
 	import { Wrench } from '@lucide/svelte';
 
@@ -39,6 +40,9 @@
 					<StatusBadge status={m.status} />
 				</div>
 				<p class="text-muted-foreground whitespace-pre-line">{m.description}</p>
+				{#if m.photos && m.photos.length > 0}
+					<MaintenancePhotos recordId={m.id} photos={m.photos} />
+				{/if}
 				<div class="flex flex-wrap items-center justify-between gap-2">
 					<span class="text-muted-foreground text-xs">
 						{m.expand?.requester?.name || 'Tenant'} · {formatDate(m.created)}

@@ -88,7 +88,7 @@
 			</div>
 			<div class="grid gap-4 sm:grid-cols-2">
 				<div class="flex flex-col gap-2">
-					<Label for="s-avail">Available from</Label>
+					<Label for="s-avail">Available after</Label>
 					<Input id="s-avail" name="available_date" type="date" value={settings.available_date} />
 				</div>
 				<label class="flex items-center gap-2 self-end pb-2 text-sm">

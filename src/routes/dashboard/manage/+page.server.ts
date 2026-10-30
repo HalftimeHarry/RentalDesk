@@ -12,6 +12,7 @@ import type {
 	Lease,
 	MaintenanceRequest,
 	Message,
+	MoveOutNotice,
 	Payment,
 	UnitSettings,
 	User
@@ -64,8 +65,9 @@ export const load: PageServerLoad = async (event) => {
 	let payments: Payment[] = [];
 	let inspections: Inspection[] = [];
 	let leaseDocuments: DocRecord[] = [];
+	let moveOutNotices: MoveOutNotice[] = [];
 	if (activeLease) {
-		[charges, payments, inspections, leaseDocuments] = await Promise.all([
+		[charges, payments, inspections, leaseDocuments, moveOutNotices] = await Promise.all([
 			pb
 				.collection('charges')
 				.getFullList({ filter: `lease = "${activeLease.id}"`, sort: 'due_date,created' })
@@ -85,7 +87,12 @@ export const load: PageServerLoad = async (event) => {
 				.collection('documents')
 				.getFullList({ filter: `lease = "${activeLease.id}"`, sort: '-created' })
 				.then((r) => r as unknown as DocRecord[])
-				.catch(() => [] as DocRecord[])
+				.catch(() => [] as DocRecord[]),
+			pb
+				.collection('move_out_notices')
+				.getFullList({ filter: `lease = "${activeLease.id}"`, sort: '-created', expand: 'tenant' })
+				.then((r) => r as unknown as MoveOutNotice[])
+				.catch(() => [] as MoveOutNotice[])
 		]);
 	}
 
@@ -147,6 +154,7 @@ export const load: PageServerLoad = async (event) => {
 		allUsers,
 		upcoming,
 		unpaidCharges,
+		moveOutNotices,
 		ledger: summarizeLedger(publishedCharges, payments),
 		today: toISODate(today)
 	};
@@ -167,6 +175,48 @@ function pbError(e: unknown): string {
 }
 
 export const actions: Actions = {
+	// Move-out notices: acknowledging receipt and recording the agreed termination
+	// date are deliberately separate from the tenant's requested date — the notice
+	// never ends the lease, stops rent, or approves the date by itself.
+	acknowledgeNotice: async (event) => {
+		if (!staffUser(event)) return staffOnly();
+		const { request, locals } = event;
+		const form = await request.formData();
+		const id = String(form.get('id') ?? '');
+		if (!id) return fail(400, { section: 'notice', message: 'Missing notice id.' });
+		try {
+			await locals.pb.collection('move_out_notices').update(id, {
+				status: 'acknowledged',
+				acknowledged_at: new Date().toISOString(),
+				acknowledged_by: locals.user!.id
+			});
+		} catch (e) {
+			return fail(500, { section: 'notice', message: `Acknowledge failed: ${pbError(e)}` });
+		}
+		return { section: 'notice', message: 'Receipt acknowledged.' };
+	},
+
+	recordTerminationDate: async (event) => {
+		if (!staffUser(event)) return staffOnly();
+		const { request, locals } = event;
+		const form = await request.formData();
+		const id = String(form.get('id') ?? '');
+		const date = String(form.get('agreed_termination_date') ?? '');
+		if (!id) return fail(400, { section: 'notice', message: 'Missing notice id.' });
+		if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+			return fail(400, { section: 'notice', message: 'Enter a valid date.' });
+		}
+		try {
+			await locals.pb.collection('move_out_notices').update(id, { agreed_termination_date: date });
+		} catch (e) {
+			return fail(500, { section: 'notice', message: `Save failed: ${pbError(e)}` });
+		}
+		return {
+			section: 'notice',
+			message: date ? 'Agreed termination date recorded.' : 'Agreed termination date cleared.'
+		};
+	},
+
 	updateSettings: async (event) => {
 		if (!staffUser(event)) return staffOnly();
 		const { request, locals } = event;

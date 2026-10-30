@@ -25,6 +25,7 @@
 	import LeaseDetailsDialog from '$lib/components/LeaseDetailsDialog.svelte';
 	import { docUrl, isImageFile } from '$lib/files';
 	import { formatDate, formatMoney } from '$lib/format';
+	import { cn } from '$lib/utils';
 	import { FileText, ClipboardCheck, Eye, HandCoins, House } from '@lucide/svelte';
 
 	let {
@@ -51,6 +52,15 @@
 	} = $props();
 
 	let leaseOpen = $state(false);
+
+	// Deposit-held tile tint: live lease requirement vs. recorded deposit payments.
+	let depositState = $derived.by((): 'none' | 'partial' | 'full' => {
+		const required = lease?.deposit_cents ?? 0;
+		const paid = ledger.depositPaid;
+		if (required > 0 && paid <= 0) return 'none';
+		if (paid >= required) return 'full';
+		return 'partial';
+	});
 </script>
 
 {#if !lease}
@@ -139,7 +149,7 @@
 				<div class="flex items-center gap-2">
 					<StatusBadge status={lease.status} />
 					<Button variant="outline" size="sm" class="min-h-12" onclick={() => (leaseOpen = true)}>
-						<Eye class="size-4" /> View lease
+						<Eye class="size-4" /> View summarized lease
 					</Button>
 				</div>
 			</div>
@@ -151,17 +161,26 @@
 		</CardHeader>
 		<CardContent class="flex flex-col gap-6">
 			<div class="grid gap-4 sm:grid-cols-3">
-				<div class="rounded-lg border p-3">
-					<p class="text-muted-foreground text-sm">Rent balance</p>
-					<p class="text-xl font-semibold">{formatMoney(ledger.rentBalance)}</p>
-					<p class="text-muted-foreground text-xs">
+				<div class="rounded-lg border border-sky-200 bg-sky-100! p-3">
+					<p class="text-navy/70 text-sm">Rent balance</p>
+					<p class="text-navy text-xl font-semibold">{formatMoney(ledger.rentBalance)}</p>
+					<p class="text-navy/60 text-xs">
 						Charged {formatMoney(ledger.rentCharged)} · Paid {formatMoney(ledger.rentPaid)}
 					</p>
 				</div>
-				<div class="rounded-lg border p-3">
-					<p class="text-muted-foreground text-sm">Deposit held</p>
-					<p class="text-xl font-semibold">{formatMoney(ledger.depositPaid)}</p>
-					<p class="text-muted-foreground text-xs">
+				<div
+					class={cn(
+						'rounded-lg border p-3',
+						depositState === 'none'
+							? 'border-red-200 bg-red-100!'
+							: depositState === 'partial'
+								? 'border-amber-200 bg-amber-100!'
+								: 'border-emerald-200 bg-emerald-100!'
+					)}
+				>
+					<p class="text-navy/70 text-sm">Deposit held</p>
+					<p class="text-navy text-xl font-semibold">{formatMoney(ledger.depositPaid)}</p>
+					<p class="text-navy/60 text-xs">
 						of {formatMoney(lease.deposit_cents)} required
 					</p>
 					{#if !depositBilled && lease.deposit_cents > 0}
@@ -170,9 +189,9 @@
 						</p>
 					{/if}
 				</div>
-				<div class="rounded-lg border p-3">
-					<p class="text-muted-foreground text-sm">Total due</p>
-					<p class="text-xl font-semibold">{formatMoney(ledger.totalBalance)}</p>
+				<div class="rounded-lg border border-turquoise/30 bg-turquoise/15! p-3">
+					<p class="text-navy/70 text-sm">Total due</p>
+					<p class="text-navy text-xl font-bold">{formatMoney(ledger.totalBalance)}</p>
 				</div>
 			</div>
 

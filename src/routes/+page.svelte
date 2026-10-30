@@ -169,7 +169,7 @@
 					{#if settings.available_date}
 						<span class="bg-gold/30 text-navy flex w-fit items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium">
 							<CalendarCheck class="text-ocean size-4 shrink-0" />
-							Available from {formatDate(settings.available_date)}
+							Available after {formatDate(settings.available_date)}
 						</span>
 					{:else}
 						<span class="bg-turquoise/15 text-navy flex w-fit items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium">

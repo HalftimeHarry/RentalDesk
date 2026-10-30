@@ -16,12 +16,15 @@
 	import UpcomingCard from '$lib/components/manage/UpcomingCard.svelte';
 	import MessageThread from '$lib/components/MessageThread.svelte';
 	import { formatMoney, formatDate } from '$lib/format';
+	import { noticePdfUrl, daysBetween } from '$lib/files';
+	import { Input } from '$lib/components/ui/input';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { buttonVariants } from '$lib/components/ui/button';
 	import {
 		CalendarClock,
 		ClipboardList,
 		LayoutDashboard,
+		LogOut,
 		MessageSquare,
 		Receipt,
 		Users,
@@ -49,6 +52,29 @@
 				label: `${u.name || u.email} (${u.role === 'tenant' ? 'Tenant' : 'Applicant'})`
 			}))
 	);
+
+	// Inspection workflow: the latest saved move-in / move-out records for the active
+	// lease drive the dashboard card's primary action — derived from PocketBase data,
+	// so it stays correct after refresh. The stage field itself stays internal.
+	let moveIn = $derived(
+		data.inspections
+			.filter((i) => i.type === 'move_in')
+			.sort((a, b) => b.created.localeCompare(a.created))[0]
+	);
+	let moveOut = $derived(
+		data.inspections
+			.filter((i) => i.type === 'move_out')
+			.sort((a, b) => b.created.localeCompare(a.created))[0]
+	);
+
+	// Move-out notices: a notice is superseded when a newer version links to it;
+	// originals are never edited.
+	const supersededNoticeIds = $derived(
+		new Set(data.moveOutNotices.map((n) => n.supersedes).filter(Boolean))
+	);
+	const activeNotices = $derived(data.moveOutNotices.filter((n) => !supersededNoticeIds.has(n.id)));
+	const pendingNotices = $derived(activeNotices.filter((n) => n.status === 'submitted'));
+	const latestNotice = $derived(activeNotices[0]);
 </script>
 
 <svelte:head>
@@ -65,8 +91,22 @@
 		</p>
 	</div>
 
+	{#if pendingNotices.length > 0}
+		<p class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+			<LogOut class="mr-1 inline size-4 align-text-bottom" />
+			Move-out notice received: {pendingNotices[0].tenant_names} requested{' '}
+			{formatDate(pendingNotices[0].requested_date)} ({daysBetween(
+				pendingNotices[0].submitted_at,
+				pendingNotices[0].requested_date
+			)} days' notice).{' '}
+			<a href="#move-out-notice" class="font-medium underline-offset-4 hover:underline">
+				Review the move-out notice below
+			</a>.
+		</p>
+	{/if}
+
 	<!-- Summary cards -->
-	<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+	<div class="grid gap-4 lg:grid-cols-3">
 		<Card>
 			<CardHeader class="pb-2">
 				<CardDescription class="flex items-center gap-1.5">
@@ -129,40 +169,44 @@
 				</Dialog.Root>
 			</CardContent>
 		</Card>
-		<Card>
+		<Card class="tile bg-seafoam/50! lg:col-span-2">
 			<CardHeader class="pb-2">
-				<CardDescription class="flex items-center gap-1.5">
-					<Users class="text-ocean size-4" /> Pending applications
-				</CardDescription>
-				<CardTitle class="text-2xl">{pendingApplications}</CardTitle>
+				<CardTitle class="flex items-center gap-2">
+					<LayoutDashboard class="text-ocean size-5" /> Overview
+				</CardTitle>
 			</CardHeader>
-			<CardContent class="text-muted-foreground text-sm">
-				{data.applications.length} total
+			<CardContent>
+				<div class="grid sm:grid-cols-3">
+					<div class="pb-4 sm:pr-5 sm:pb-0">
+						<p class="text-muted-foreground flex items-center gap-1.5 text-sm">
+							<Users class="text-ocean size-4" /> Pending applications
+						</p>
+						<p class="mt-1 text-2xl leading-none font-semibold">{pendingApplications}</p>
+						<p class="text-muted-foreground mt-1 text-sm">{data.applications.length} total</p>
+					</div>
+					<div class="border-border border-y py-4 sm:border-x sm:border-y-0 sm:px-5 sm:py-0">
+						<p class="text-muted-foreground flex items-center gap-1.5 text-sm">
+							<Wrench class="text-coral size-4" /> Open maintenance
+						</p>
+						<p class="mt-1 text-2xl leading-none font-semibold">{openMaintenance}</p>
+						<p class="text-muted-foreground mt-1 text-sm">
+							{data.maintenance.length} total requests
+						</p>
+					</div>
+					<div class="pt-4 sm:pl-5 sm:pt-0">
+						<p class="text-muted-foreground flex items-center gap-1.5 text-sm">
+							<CalendarClock class="text-gold size-4" /> Upcoming dates
+						</p>
+						<p class="mt-1 text-2xl leading-none font-semibold">{data.upcoming.length}</p>
+						<p class="text-muted-foreground mt-1 text-sm">Next 60 days</p>
+					</div>
+				</div>
 			</CardContent>
-		</Card>
-		<Card>
-			<CardHeader class="pb-2">
-				<CardDescription class="flex items-center gap-1.5">
-					<Wrench class="text-coral size-4" /> Open maintenance
-				</CardDescription>
-				<CardTitle class="text-2xl">{openMaintenance}</CardTitle>
-			</CardHeader>
-			<CardContent class="text-muted-foreground text-sm">
-				{data.maintenance.length} total requests
-			</CardContent>
-		</Card>
-		<Card>
-			<CardHeader class="pb-2">
-				<CardDescription class="flex items-center gap-1.5">
-					<CalendarClock class="text-gold size-4" /> Upcoming dates
-				</CardDescription>
-				<CardTitle class="text-2xl">{data.upcoming.length}</CardTitle>
-			</CardHeader>
-			<CardContent class="text-muted-foreground text-sm">Next 60 days</CardContent>
 		</Card>
 	</div>
 
-	<!-- Prominent inspection report entry point -->
+	<!-- Inspection report: the primary action follows the saved workflow stage.
+		The stage field stays internal — no selector on this card. -->
 	<Card class="border-ocean/30">
 		<CardHeader>
 			<CardTitle class="flex items-center gap-2">
@@ -173,10 +217,212 @@
 				vacant-unit inspections.
 			</CardDescription>
 		</CardHeader>
-		<CardContent>
-			<Button href="/dashboard/inspections" size="lg" class="min-h-12 w-full sm:w-auto">
-				<ClipboardList class="size-5" /> Open inspection report
-			</Button>
+		<CardContent class="flex flex-col gap-3">
+			{#if moveIn && moveIn.stage !== 'signed'}
+				<p class="text-muted-foreground text-sm">
+					The move-in inspection is saved and awaiting {moveIn.sig_landlord || moveIn.sig_tenant
+						? 'one more signature'
+						: 'landlord and tenant signatures'}.
+				</p>
+				<div>
+					<Button
+						href="/dashboard/inspections/{moveIn.id}"
+						size="lg"
+						class="min-h-12 w-full sm:w-auto"
+					>
+						<ClipboardList class="size-5" /> Continue move-in inspection
+					</Button>
+				</div>
+			{:else if moveIn?.stage === 'signed' && !moveOut}
+				<p class="text-muted-foreground text-sm">
+					The move-in inspection is fully signed and preserved. Starting move-out creates a
+					separate draft with blank signatures and the move-in conditions attached for
+					comparison.
+				</p>
+				<!-- Reuses the existing createInspection action: snapshots move-in conditions
+					into a linked draft. Nothing is created until this button is used. -->
+				<form method="POST" action="/dashboard/inspections?/createInspection">
+					<input type="hidden" name="lease" value={data.activeLease?.id ?? ''} />
+					<input type="hidden" name="type" value="move_out" />
+					<Button
+						type="submit"
+						size="lg"
+						class="min-h-12 w-full border-transparent bg-emerald-600 text-white hover:bg-emerald-700 sm:w-auto"
+					>
+						<ClipboardList class="size-5" /> Start move-out inspection
+					</Button>
+				</form>
+			{:else if moveOut && moveOut.stage !== 'signed'}
+				<p class="text-muted-foreground text-sm">
+					The move-out inspection is saved and awaiting {moveOut.sig_landlord || moveOut.sig_tenant
+						? 'one more signature'
+						: 'landlord and tenant signatures'}.
+				</p>
+				<div>
+					<Button
+						href="/dashboard/inspections/{moveOut.id}"
+						size="lg"
+						class="min-h-12 w-full sm:w-auto"
+					>
+						<ClipboardList class="size-5" /> Continue move-out inspection
+					</Button>
+				</div>
+			{:else if moveIn?.stage === 'signed' && moveOut?.stage === 'signed'}
+				<p class="text-muted-foreground text-sm">
+					The move-in and move-out reports are both fully signed and preserved.
+				</p>
+			{:else}
+				<div>
+					<Button
+						href="/dashboard/inspections"
+						size="lg"
+						class="min-h-12 w-full border-transparent bg-emerald-600 text-white hover:bg-emerald-700 sm:w-auto"
+					>
+						<ClipboardList class="size-5" /> Open inspection report
+					</Button>
+				</div>
+			{/if}
+			<div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+				{#if moveIn?.stage === 'signed'}
+					<a
+						href="/dashboard/inspections/{moveIn.id}"
+						class="text-ocean font-medium underline-offset-4 hover:underline"
+					>
+						View signed move-in report
+					</a>
+				{/if}
+				{#if moveOut?.stage === 'signed'}
+					<a
+						href="/dashboard/inspections/{moveOut.id}"
+						class="text-ocean font-medium underline-offset-4 hover:underline"
+					>
+						View signed move-out report
+					</a>
+				{/if}
+				<a
+					href="/dashboard/inspections"
+					class="text-ocean font-medium underline-offset-4 hover:underline"
+				>
+					Inspection history
+				</a>
+			</div>
+		</CardContent>
+	</Card>
+
+	<!-- Move-out notice: tenant-submitted intent to end the tenancy. The requested
+		date is never treated as approved; lease, rent, and deductions are unchanged. -->
+	<Card id="move-out-notice">
+		<CardHeader>
+			<CardTitle class="flex items-center gap-2">
+				<LogOut class="text-coral size-5" /> Move-out notice
+			</CardTitle>
+			<CardDescription>
+				The tenant's requested date is not approved until you record an agreed termination
+				date — the notice itself does not end the lease, stop rent, or set deductions.
+			</CardDescription>
+		</CardHeader>
+		<CardContent class="flex flex-col gap-4">
+			{#if form?.section === 'notice'}
+				<p class="bg-turquoise/15 text-navy rounded-md px-3 py-2 text-sm">{form.message}</p>
+			{/if}
+			{#if !latestNotice}
+				<p class="text-muted-foreground text-sm">No move-out notice received.</p>
+			{:else}
+				{@const n = latestNotice}
+				<div class="flex flex-col gap-2">
+					<p class="text-navy text-lg font-semibold">
+						Requested move-out: {formatDate(n.requested_date)}
+					</p>
+					<p class="text-muted-foreground text-sm">
+						{n.tenant_names} · submitted {formatDate(n.submitted_at)} ·{' '}
+						{daysBetween(n.submitted_at, n.requested_date)} days' notice
+					</p>
+					<p class="text-sm">Forwarding address: {n.forwarding_address || 'Not provided'}</p>
+					{#if n.notes}
+						<p class="text-muted-foreground text-sm">Notes: {n.notes}</p>
+					{/if}
+					<div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+						{#if n.notice_pdf}
+							<a
+								href={noticePdfUrl(n.id, n.notice_pdf)}
+								target="_blank"
+								rel="noreferrer"
+								class="text-ocean font-medium underline-offset-4 hover:underline">View notice PDF</a
+							>
+							<a
+								href="{noticePdfUrl(n.id, n.notice_pdf)}?download=1"
+								class="text-ocean font-medium underline-offset-4 hover:underline">Download</a
+							>
+						{/if}
+					</div>
+					{#if n.status === 'submitted'}
+						<form method="POST" action="?/acknowledgeNotice">
+							<input type="hidden" name="id" value={n.id} />
+							<Button type="submit" variant="outline" class="min-h-12">Acknowledge receipt</Button>
+						</form>
+					{:else}
+						<p class="text-sm">
+							<span class="rounded bg-emerald-200 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-900">
+								Acknowledged
+							</span>
+							<span class="text-muted-foreground text-xs"> on {formatDate(n.acknowledged_at)}</span>
+						</p>
+					{/if}
+					<form method="POST" action="?/recordTerminationDate" class="flex flex-wrap items-end gap-2">
+						<input type="hidden" name="id" value={n.id} />
+						<label class="flex flex-col gap-1 text-xs">
+							Agreed termination date (recorded separately)
+							<Input
+								type="date"
+								name="agreed_termination_date"
+								value={n.agreed_termination_date?.slice(0, 10) ?? ''}
+								class="w-48"
+							/>
+						</label>
+						<Button type="submit" variant="outline" size="sm" class="min-h-12">Save date</Button>
+					</form>
+					<!-- Same linked-inspection workflow as the Inspection Report card. -->
+					<form method="POST" action="/dashboard/inspections?/createInspection">
+						<input type="hidden" name="lease" value={data.activeLease?.id ?? ''} />
+						<input type="hidden" name="type" value="move_out" />
+						<Button
+							type="submit"
+							size="lg"
+							class="min-h-12 w-full border-transparent bg-emerald-600 text-white hover:bg-emerald-700 sm:w-auto"
+						>
+							<ClipboardList class="size-5" /> Start move-out inspection
+						</Button>
+					</form>
+				</div>
+				{#if data.moveOutNotices.length > 1}
+					<details class="text-sm">
+						<summary class="text-muted-foreground cursor-pointer">
+							Version history ({data.moveOutNotices.length})
+						</summary>
+						<ul class="mt-1 divide-y rounded-md border">
+							{#each data.moveOutNotices as v (v.id)}
+								<li class="flex flex-wrap items-center justify-between gap-2 p-2">
+									<span>
+										Move-out {formatDate(v.requested_date)} · submitted{' '}
+										{formatDate(v.submitted_at)}
+										{#if supersededNoticeIds.has(v.id)}
+											<span class="text-muted-foreground"> · superseded</span>
+										{/if}
+									</span>
+									{#if v.notice_pdf}
+										<a
+											href={noticePdfUrl(v.id, v.notice_pdf)}
+											target="_blank"
+											rel="noreferrer"
+											class="text-ocean text-xs underline-offset-4 hover:underline">View</a
+										>
+									{/if}
+								</li>
+							{/each}
+						</ul>
+					</details>
+				{/if}
+			{/if}
 		</CardContent>
 	</Card>
 
