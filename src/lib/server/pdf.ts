@@ -4,6 +4,8 @@
  * to ASCII so byte offsets stay exact.
  */
 
+import { LOGO_JPEG_BASE64, LOGO_JPEG_HEIGHT, LOGO_JPEG_WIDTH } from './assets/logo-jpeg';
+
 function clean(s: string): string {
 	return s
 		.replace(/[—–]/g, '-')
@@ -104,4 +106,117 @@ export function buildNoticePdf(title: string, lines: string[]): Uint8Array {
 	for (const off of offsets) pdf += `${String(off).padStart(10, '0')} 00000 n \n`;
 	pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefPos}\n%%EOF`;
 	return new TextEncoder().encode(pdf);
+}
+
+// Theme colors (src/app.css) as PDF rg triples.
+const SEAFOAM = '0.851 0.933 0.906';
+const NAVY = '0.086 0.196 0.310';
+const OCEAN = '0.027 0.349 0.522';
+const GOLD = '0.984 0.749 0.141';
+
+/**
+ * Build a one-page branded PDF matching the site's print styling: seafoam
+ * masthead with the Rental Desk logo, business name/address/owner lines, an
+ * ocean document title, a gold accent bar, then 10pt navy body lines (blank
+ * string = blank line). Binary-safe writer so the JPEG logo embeds exactly.
+ */
+export function buildBrandedNoticePdf(input: {
+	title: string;
+	subtitle?: string;
+	unitName?: string;
+	address?: string;
+	ownerName?: string;
+	lines: string[];
+}): Uint8Array {
+	const bandTop = 792;
+	const bandBottom = 700;
+	const goldBarH = 6;
+	const logoH = 56;
+	const logoW = Math.round((logoH * LOGO_JPEG_WIDTH) / LOGO_JPEG_HEIGHT);
+
+	const parts: string[] = [
+		// seafoam masthead + gold accent bar
+		`${SEAFOAM} rg 0 ${bandBottom} 612 ${bandTop - bandBottom} re f`,
+		`${GOLD} rg 0 ${bandBottom - goldBarH} 612 ${goldBarH} re f`,
+		// logo at the left of the band
+		`q ${logoW} 0 0 ${logoH} 48 ${bandBottom + (bandTop - bandBottom - logoH) / 2} cm /Logo Do Q`
+	];
+
+	// Business identity next to the logo.
+	const bizX = 48 + logoW + 14;
+	let bizY = bandTop - 32;
+	parts.push(`${NAVY} rg BT /F2 13 Tf ${bizX} ${bizY} Td (${escapePdfText(clean(input.unitName || 'Rental Desk'))}) Tj ET`);
+	for (const line of [input.address, input.ownerName ? `Owner / manager: ${input.ownerName}` : '']) {
+		if (!line) continue;
+		bizY -= 14;
+		parts.push(`${NAVY} rg BT /F1 9 Tf ${bizX} ${bizY} Td (${escapePdfText(clean(line))}) Tj ET`);
+	}
+
+	// Document title inside the band, below the identity block.
+	parts.push(`${OCEAN} rg BT /F2 15 Tf 48 ${bandBottom + 14} Td (${escapePdfText(clean(input.title))}) Tj ET`);
+	if (input.subtitle) {
+		parts.push(`${NAVY} rg BT /F1 10 Tf 320 ${bandBottom + 16} Td (${escapePdfText(clean(input.subtitle))}) Tj ET`);
+	}
+
+	// Body
+	parts.push(`${NAVY} rg`);
+	let y = bandBottom - goldBarH - 28;
+	for (const raw of input.lines) {
+		for (const line of wrap(clean(raw), 84)) {
+			if (y < 60) break;
+			if (line !== '') parts.push(`BT /F1 10 Tf 60 ${y} Td (${escapePdfText(line)}) Tj ET`);
+			y -= 14;
+		}
+	}
+	const content = parts.join('\n');
+	const logoBytes = Uint8Array.from(atob(LOGO_JPEG_BASE64), (c) => c.charCodeAt(0));
+
+	// Assemble with byte-exact offsets (object 7 carries binary JPEG data).
+	const enc = new TextEncoder();
+	const chunks: Uint8Array[] = [];
+	let length = 0;
+	const push = (data: string | Uint8Array) => {
+		const bytes = typeof data === 'string' ? enc.encode(data) : data;
+		chunks.push(bytes);
+		length += bytes.length;
+	};
+
+	push('%PDF-1.4\n');
+	const offsets: number[] = [];
+	const beginObj = (n: number) => {
+		offsets.push(length);
+		push(`${n} 0 obj\n`);
+	};
+	const endObj = () => push('\nendobj\n');
+
+	beginObj(1); push('<< /Type /Catalog /Pages 2 0 R >>'); endObj();
+	beginObj(2); push('<< /Type /Pages /Kids [3 0 R] /Count 1 >>'); endObj();
+	beginObj(3);
+	push(
+		'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R /F2 5 0 R >> /XObject << /Logo 7 0 R >> >> /Contents 6 0 R >>'
+	);
+	endObj();
+	beginObj(4); push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'); endObj();
+	beginObj(5); push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>'); endObj();
+	beginObj(6); push(`<< /Length ${enc.encode(content).length} >>\nstream\n${content}\nendstream`); endObj();
+	beginObj(7);
+	push(
+		`<< /Type /XObject /Subtype /Image /Width ${LOGO_JPEG_WIDTH} /Height ${LOGO_JPEG_HEIGHT} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${logoBytes.length} >>\nstream\n`
+	);
+	push(logoBytes);
+	push('\nendstream');
+	endObj();
+
+	const xrefPos = length;
+	push(`xref\n0 ${offsets.length + 1}\n0000000000 65535 f \n`);
+	for (const off of offsets) push(`${String(off).padStart(10, '0')} 00000 n \n`);
+	push(`trailer\n<< /Size ${offsets.length + 1} /Root 1 0 R >>\nstartxref\n${xrefPos}\n%%EOF`);
+
+	const out = new Uint8Array(length);
+	let pos = 0;
+	for (const c of chunks) {
+		out.set(c, pos);
+		pos += c.length;
+	}
+	return out;
 }

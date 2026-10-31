@@ -54,7 +54,7 @@
 		data.user ? data.user.role.charAt(0).toUpperCase() + data.user.role.slice(1) : ''
 	);
 
-	// Compact bottom nav on small screens for the staff management dashboard only;
+	// Compact bottom nav sizing on small screens for the staff management dashboard only;
 	// items keep a ≥44px (min-h-11) tap target. All other views are unchanged.
 	let compactNav = $state(false);
 	$effect(() => {
@@ -90,7 +90,8 @@
 </div>
 
 <div class="flex h-dvh flex-col overflow-hidden print:h-auto print:overflow-visible">
-	<header class={cn('bg-seafoam text-navy sticky top-0 z-40 border-b border-navy/15 print:hidden', compactNav ? 'hidden sm:flex' : 'flex')}>
+	<!-- Top navbar is hidden on all small screens across every route; mobile uses the bottom nav. -->
+	<header class="bg-seafoam text-navy sticky top-0 z-40 hidden border-b border-navy/15 print:hidden sm:flex">
 		<div class="mx-auto flex h-16 w-full max-w-6xl items-center gap-3 px-4">
 			<a href="/" class="flex items-center gap-2">
 				<img src={logo} alt="Rental Desk" class="h-10 w-auto object-contain" />

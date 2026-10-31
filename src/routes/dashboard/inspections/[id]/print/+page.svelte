@@ -4,6 +4,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import { CONDITION_LABELS, markLabel, STAGE_LABELS, type InspectionStage } from '$lib/inspection';
 	import { formatDate, formatMoney } from '$lib/format';
+	import PrintBrandHeader from '$lib/components/PrintBrandHeader.svelte';
 	import { ArrowLeft, Download, Printer } from '@lucide/svelte';
 
 	let { data }: { data: PageData } = $props();
@@ -73,9 +74,15 @@
 
 	<!-- Report -->
 	<article class="rounded-xl border bg-white p-6 text-[#16324F] shadow-sm print:rounded-none print:border-0 print:p-0 print:shadow-none">
+		<PrintBrandHeader
+			title="Property Inspection Report"
+			subtitle="{typeLabels[inspection.type]} inspection · {formatDate(inspection.date)}"
+			unitName={data.unitName}
+			address={data.businessAddress}
+			ownerName={data.ownerName}
+		/>
 		<header class="mb-6 border-b-2 border-[#075985] pb-4">
-			<h1 class="text-2xl font-bold tracking-tight">Property Inspection Report</h1>
-			<div class="mt-3 grid grid-cols-2 gap-x-6 gap-y-1 text-sm sm:grid-cols-3">
+			<div class="grid grid-cols-2 gap-x-6 gap-y-1 text-sm sm:grid-cols-3">
 				<p><span class="font-semibold">Property:</span> {inspection.address}</p>
 				<p><span class="font-semibold">Unit:</span> {inspection.unit}</p>
 				<p><span class="font-semibold">Tenant(s):</span> {inspection.tenant_names || '—'}</p>
@@ -293,5 +300,17 @@
 				</div>
 			{/each}
 		</section>
+
+		<footer
+			class="mt-8 flex flex-wrap items-center justify-between gap-2 border-t-2 border-[#075985] pt-3 text-xs text-[#16324F]/70"
+			style="print-color-adjust: exact; -webkit-print-color-adjust: exact;"
+		>
+			<span>
+				{data.unitName || 'RentalDesk'}{data.businessAddress ? ` · ${data.businessAddress}` : ''}{data.ownerName
+					? ` · ${data.ownerName}`
+					: ''}
+			</span>
+			<span>Generated {formatDate(new Date().toISOString().slice(0, 10))} · RentalDesk</span>
+		</footer>
 	</article>
 </div>

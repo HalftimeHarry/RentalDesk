@@ -125,22 +125,6 @@
 		</div>
 	{/if}
 
-	<div class="mt-4 flex flex-col gap-6">
-		<LeaseCard
-			section="tenant"
-			lease={data.activeLease}
-			ledger={data.ledger}
-			inspections={data.inspections}
-			leaseDocuments={data.leaseDocuments}
-			{approvedApplications}
-			settings={data.settings}
-			today={data.today}
-			{form}
-			depositBilled={data.charges.some((c) => c.type === 'deposit' && c.status === 'published')}
-			hasPending={!!data.pendingLease}
-		/>
-	</div>
-
 	{#if pendingNotices.length > 0}
 		<p class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
 			<LogOut class="mr-1 inline size-4 align-text-bottom" />
@@ -225,7 +209,71 @@
 				</Dialog.Root>
 			</CardContent>
 		</Card>
-		<details class="group lg:col-span-2" open={false}>
+		<!-- Manage Unit sits directly above Overview in the wide column of the summary grid. -->
+		<div class="flex flex-col gap-4 lg:col-span-2">
+		<details class="group block" open={false}>
+			<summary class="list-none cursor-pointer [&::-webkit-details-marker]:hidden">
+				<div class="flex items-center justify-between gap-3 rounded-xl border border-transparent bg-transparent px-0 py-2 text-left">
+					<div class="flex items-center gap-2 text-base font-semibold text-slate-900">
+						<LayoutDashboard class="text-ocean size-5" /> Manage Unit
+					</div>
+					<ChevronDown class="text-muted-foreground size-4 shrink-0 transition-transform group-open:rotate-180" />
+				</div>
+			</summary>
+			<div class="mt-3 flex flex-col gap-6">
+				<LeaseCard
+					section="tenant"
+					lease={data.activeLease}
+					ledger={data.ledger}
+					inspections={data.inspections}
+					leaseDocuments={data.leaseDocuments}
+					{approvedApplications}
+					settings={data.settings}
+					today={data.today}
+					{form}
+					depositBilled={data.charges.some((c) => c.type === 'deposit' && c.status === 'published')}
+					hasPending={!!data.pendingLease}
+				/>
+
+				<div class="grid gap-6 lg:grid-cols-2">
+					<ApplicantsCard
+						applications={data.applications}
+						form={form}
+						lease={data.activeLease ?? data.pendingLease}
+						leaseDocuments={data.activeLease ? data.leaseDocuments : data.pendingLeaseDocuments}
+						charges={data.charges}
+						inspections={data.inspections}
+					/>
+				</div>
+
+				<div class="flex flex-col gap-6">
+					<LeaseCard
+						section="records"
+						lease={data.activeLease}
+						ledger={data.ledger}
+						inspections={data.inspections}
+						leaseDocuments={data.leaseDocuments}
+						{approvedApplications}
+						settings={data.settings}
+						today={data.today}
+						{form}
+						depositBilled={data.charges.some((c) => c.type === 'deposit' && c.status === 'published')}
+						hasPending={!!data.pendingLease}
+					/>
+
+					<SettingsCard settings={data.settings} propertyAccess={data.propertyAccess} {form} />
+
+					<TeamCard
+						users={data.allUsers}
+						invitations={data.invitations}
+						currentUserId={data.user.id}
+						isOwner={data.user.role === 'owner'}
+						{form}
+					/>
+				</div>
+			</div>
+		</details>
+		<details class="group" open={false}>
 			<summary class="list-none [&::-webkit-details-marker]:hidden">
 				<div class="flex cursor-pointer items-center justify-between gap-2 rounded-xl border border-transparent bg-transparent px-0 py-2 text-left">
 					<div class="flex items-center gap-2 text-base font-semibold text-slate-900">
@@ -271,6 +319,7 @@
 				</Card>
 			</div>
 		</details>
+		</div>
 	</div>
 
 	<!-- Inspection report: the primary action follows the saved workflow stage.
@@ -440,45 +489,7 @@
 	</div>
 	</details>
 
-	<div class="grid gap-6 lg:grid-cols-2">
-		<ApplicantsCard
-			applications={data.applications}
-			form={form}
-			lease={data.activeLease ?? data.pendingLease}
-			leaseDocuments={data.activeLease ? data.leaseDocuments : data.pendingLeaseDocuments}
-			charges={data.charges}
-			inspections={data.inspections}
-		/>
-	</div>
-
-	<div class="flex flex-col gap-6">
-		<LeaseCard
-			section="records"
-			lease={data.activeLease}
-			ledger={data.ledger}
-			inspections={data.inspections}
-			leaseDocuments={data.leaseDocuments}
-			{approvedApplications}
-			settings={data.settings}
-			today={data.today}
-			{form}
-			depositBilled={data.charges.some((c) => c.type === 'deposit' && c.status === 'published')}
-			hasPending={!!data.pendingLease}
-		/>
-
-		<SettingsCard settings={data.settings} propertyAccess={data.propertyAccess} {form} />
-
-		<!-- Team & roles for all staff: invitations are Owner+Admin; role dropdowns
-		     stay Owner-only inside the card (and server/PocketBase-enforced). -->
-		<TeamCard
-			users={data.allUsers}
-			invitations={data.invitations}
-			currentUserId={data.user.id}
-			isOwner={data.user.role === 'owner'}
-			{form}
-		/>
-
-		<details class="group block" open={false}>
+	<details class="group block" open={false}>
 			<summary class="list-none cursor-pointer [&::-webkit-details-marker]:hidden">
 				<div class="flex items-center justify-between gap-3 rounded-xl border border-transparent px-0 py-2 text-left">
 					<div class="flex items-center gap-2 text-base font-semibold text-slate-900">
@@ -629,6 +640,4 @@
 			{/if}
 		</CardContent>
 	</Card>
-
-</div>
 

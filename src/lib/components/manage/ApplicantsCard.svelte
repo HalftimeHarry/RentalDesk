@@ -6,13 +6,7 @@
 	import type { Application } from '$lib/types';
 	import { enhance } from '$app/forms';
 	import { Button } from '$lib/components/ui/button';
-	import {
-		Card,
-		CardContent,
-		CardDescription,
-		CardHeader,
-		CardTitle
-	} from '$lib/components/ui/card';
+	import { Card, CardContent } from '$lib/components/ui/card';
 	import { Input } from '$lib/components/ui/input';
 	import * as Select from '$lib/components/ui/select';
 	import StatusBadge from '$lib/components/StatusBadge.svelte';
@@ -52,13 +46,6 @@
 			</div>
 		</summary>
 		<CardContent class="mt-2 flex flex-col gap-3">
-			<div class="flex items-center gap-2 pb-1">
-				<Users class="text-ocean size-5" />
-				<div>
-					<p class="font-semibold text-slate-900">Applicants</p>
-					<p class="text-muted-foreground text-sm">{applications.length} application{applications.length === 1 ? '' : 's'} total</p>
-				</div>
-			</div>
 			{#if form?.section === 'applications'}
 				<p class="bg-muted rounded-md px-3 py-2 text-sm">{form.message}</p>
 			{/if}

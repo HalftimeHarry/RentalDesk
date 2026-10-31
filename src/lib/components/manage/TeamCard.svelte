@@ -3,13 +3,7 @@
 	import type { FormFeedback } from './ApplicantsCard.svelte';
 	import { enhance } from '$app/forms';
 	import { Button } from '$lib/components/ui/button';
-	import {
-		Card,
-		CardContent,
-		CardDescription,
-		CardHeader,
-		CardTitle
-	} from '$lib/components/ui/card';
+	import { Card, CardContent } from '$lib/components/ui/card';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
 	import * as Select from '$lib/components/ui/select';
@@ -54,15 +48,12 @@
 				<ChevronDown class="text-muted-foreground size-4 shrink-0 transition-transform group-open:rotate-180" />
 			</div>
 		</summary>
-		<CardHeader>
-			<CardTitle class="flex items-center gap-2">
-				<UsersRound class="text-ocean size-5" /> Team &amp; roles
-			</CardTitle>
-			<CardDescription>
+		<div class="px-4 pt-3">
+			<p class="text-sm text-slate-600">
 				Invite admins by link (Owner and Admin). Direct role changes stay Owner-only — Applicants
 				can never grant themselves management roles.
-			</CardDescription>
-		</CardHeader>
+			</p>
+		</div>
 		<CardContent class="flex flex-col gap-3">
 			{#if form?.section === 'team'}
 				<p class="bg-muted rounded-md px-3 py-2 text-sm">{form.message}</p>

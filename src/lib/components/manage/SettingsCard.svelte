@@ -3,13 +3,7 @@
 	import type { FormFeedback } from './ApplicantsCard.svelte';
 	import { enhance } from '$app/forms';
 	import { Button } from '$lib/components/ui/button';
-	import {
-		Card,
-		CardContent,
-		CardDescription,
-		CardHeader,
-		CardTitle
-	} from '$lib/components/ui/card';
+	import { Card, CardContent } from '$lib/components/ui/card';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
 	import { Textarea } from '$lib/components/ui/textarea';
@@ -80,14 +74,11 @@
 				<ChevronDown class="text-muted-foreground size-4 shrink-0 transition-transform group-open:rotate-180" />
 			</div>
 		</summary>
-		<CardHeader class="px-4 pt-3">
-			<CardTitle class="flex items-center gap-2">
-				<Settings class="text-turquoise size-5" /> Unit settings
-			</CardTitle>
-			<CardDescription>
+		<div class="px-4 pt-3">
+			<p class="text-sm text-slate-600">
 				Shown on the public landing page. Rent and deposit set the defaults for new leases.
-			</CardDescription>
-		</CardHeader>
+			</p>
+		</div>
 		<CardContent class="px-4 pb-4">
 			{#if form?.section === 'settings'}
 				<p
@@ -241,10 +232,7 @@
 		<CardContent class="px-4 pb-4">
 			<div class="mb-4 flex items-center gap-2">
 				<KeyRound class="text-ocean size-5" />
-				<div>
-					<p class="text-base font-semibold">Property access</p>
-					<p class="text-muted-foreground text-xs">Gate codes and lockbox entries for this property.</p>
-				</div>
+				<p class="text-muted-foreground text-xs">Gate codes and lockbox entries for this property.</p>
 			</div>
 			{#if form?.section === 'property_access'}
 				<p class="mb-3 rounded-md bg-emerald-100 px-3 py-2 text-sm text-emerald-900">{form.message}</p>

@@ -166,25 +166,23 @@
 					<ChevronDown class="text-muted-foreground size-4 shrink-0 transition-transform group-open:rotate-180" />
 				</div>
 			</summary>
-			<CardHeader>
-				<div class="flex flex-wrap items-center justify-between gap-2">
-					<CardTitle class="flex items-center gap-2">
-						<House class="text-ocean size-5" />
-						Current tenant: {lease.expand?.tenant?.name || lease.expand?.tenant?.email || 'Tenant'}
-					</CardTitle>
-					<div class="flex items-center gap-2">
-						<StatusBadge status={lease.status} />
-						<Button variant="outline" size="sm" class="min-h-12" onclick={() => (leaseOpen = true)}>
-							<Eye class="size-4" /> View summarized lease
-						</Button>
-					</div>
+			<div class="flex flex-wrap items-center justify-between gap-2 px-4 pt-4">
+				<div class="flex items-center gap-2 text-sm text-slate-600">
+					<span class="font-medium text-slate-900">Current tenant:</span>
+					<span>{lease.expand?.tenant?.name || lease.expand?.tenant?.email || 'Tenant'}</span>
 				</div>
-				<CardDescription>
-					{formatDate(lease.start_date)} – {formatDate(lease.end_date)} · {formatMoney(
-						lease.monthly_rent_cents
-					)}/month · deposit {formatMoney(lease.deposit_cents)}
-				</CardDescription>
-			</CardHeader>
+				<div class="flex items-center gap-2">
+					<StatusBadge status={lease.status} />
+					<Button variant="outline" size="sm" class="min-h-12" onclick={() => (leaseOpen = true)}>
+						<Eye class="size-4" /> View summarized lease
+					</Button>
+				</div>
+			</div>
+			<div class="px-4 pb-4 text-sm text-slate-600">
+				{formatDate(lease.start_date)} – {formatDate(lease.end_date)} · {formatMoney(
+					lease.monthly_rent_cents
+				)}/month · deposit {formatMoney(lease.deposit_cents)}
+			</div>
 			<CardContent class="flex flex-col gap-6">
 				<div class="grid gap-4 sm:grid-cols-3">
 					<div class="rounded-lg border border-sky-200 bg-sky-100! p-3">
@@ -304,25 +302,20 @@
 				</div>
 			</summary>
 			<Card>
-				<CardHeader>
-					<div class="flex flex-wrap items-center justify-between gap-2">
-						<CardTitle class="flex items-center gap-2">
-							<ClipboardCheck class="text-ocean size-5" /> Inspections
-						</CardTitle>
-						<Button
-							href="/dashboard/inspections"
-							variant="outline"
-							size="sm"
-							class="border-orange-200 bg-orange-100 text-orange-900 shadow-sm hover:bg-orange-200"
-						>
-							Inspection history
-						</Button>
-					</div>
-					<CardDescription>
+				<div class="flex flex-wrap items-center justify-between gap-2 px-4 pt-4">
+					<div class="text-sm text-slate-600">
 						Schedule move-in, move-out, or periodic inspections — open one to fill the full
 						nine-section form.
-					</CardDescription>
-				</CardHeader>
+					</div>
+					<Button
+						href="/dashboard/inspections"
+						variant="outline"
+						size="sm"
+						class="border-orange-200 bg-orange-100 text-orange-900 shadow-sm hover:bg-orange-200"
+					>
+						Inspection history
+					</Button>
+				</div>
 				<CardContent class="flex flex-col gap-4">
 					{#if form?.section === 'inspections'}
 						<p class="bg-muted rounded-md px-3 py-2 text-sm">{form.message}</p>
@@ -394,12 +387,7 @@
 				</div>
 			</summary>
 			<Card>
-				<CardHeader>
-					<CardTitle class="flex items-center gap-2">
-						<FileText class="text-gold size-5" /> Lease documents
-					</CardTitle>
-					<CardDescription>Signed lease, addenda, and inspection reports.</CardDescription>
-				</CardHeader>
+				<div class="px-4 pt-4 text-sm text-slate-600">Signed lease, addenda, and inspection reports.</div>
 				<CardContent class="flex flex-col gap-4">
 					{#if form?.section === 'documents'}
 						<p class="bg-muted rounded-md px-3 py-2 text-sm">{form.message}</p>

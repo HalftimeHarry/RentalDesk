@@ -3,7 +3,7 @@ import type { PageServerLoad } from './$types';
 import { requireUser } from '$lib/server/guard';
 import { flaggedItems, otherItems, parseChecklist, parseDeductions } from '$lib/inspection';
 import { PUBLIC_POCKETBASE_URL } from '$lib/files';
-import type { DocRecord, Inspection } from '$lib/types';
+import type { DocRecord, Inspection, UnitSettings } from '$lib/types';
 
 export const load: PageServerLoad = async (event) => {
 	const user = requireUser(event);
@@ -62,11 +62,26 @@ export const load: PageServerLoad = async (event) => {
 		linkedDate = linked?.date ?? '';
 	}
 
+	// Branding for the printed report: unit/business info plus the owner
+	// account's display name (best-effort — tenants may not be able to list users).
+	const settings = (await pb
+		.collection('settings')
+		.getList(1, 1, { sort: 'created' })
+		.then((l) => l.items[0] ?? null)
+		.catch(() => null)) as unknown as UnitSettings | null;
+	const owner = (await pb
+		.collection('users')
+		.getFirstListItem('role = "owner"')
+		.catch(() => null)) as { name?: string; email?: string } | null;
+
 	return {
 		user,
 		inspection: content,
 		checklist,
 		isStaff,
+		unitName: settings?.unit_name ?? '',
+		businessAddress: settings?.address ?? '',
+		ownerName: owner?.name || owner?.email || '',
 		photoDocs: Object.fromEntries(docs.map((d) => [d.id, d])),
 		photoUrl: Object.fromEntries(docs.map((d) => [d.id, photoUrl(d, '100x100')])),
 		others: otherItems(checklist),
