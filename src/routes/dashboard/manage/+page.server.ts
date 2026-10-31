@@ -711,7 +711,8 @@ export const actions: Actions = {
 			const t = inviteAdminEmail({
 				inviterName: user.name || user.email,
 				url: inviteUrl,
-				expires: invite.expires
+				expires: invite.expires,
+				appUrl: base
 			});
 			const result = await sendMail({ to: email, subject: t.subject, html: t.html, text: t.text });
 			if (result.sent) emailNote = 'Invitation email sent.';

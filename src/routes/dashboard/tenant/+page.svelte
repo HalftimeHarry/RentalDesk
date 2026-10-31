@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { ActionData, PageData } from './$types';
 	import { invalidateAll } from '$app/navigation';
+	import { page } from '$app/state';
 	import { Button } from '$lib/components/ui/button';
 	import {
 		Card,
@@ -38,6 +39,17 @@
 	let leaseOpen = $state(false);
 	let dashboardOverviewOpen = $state(false);
 	let dashboardOverviewVideo = $derived(data.helpVideos.find((v) => v.placement === 'tenant_dashboard') ?? null);
+	// Email/tutorial deep link: ?watch=<slug> opens the matching dialog once
+	// after login (closing it again must stick).
+	let autoWatched = $state(false);
+	$effect(() => {
+		if (autoWatched) return;
+		const slug = page.url.searchParams.get('watch');
+		if (slug && dashboardOverviewVideo?.slug === slug) {
+			autoWatched = true;
+			dashboardOverviewOpen = true;
+		}
+	});
 	let propertyAccessVisible = $state<Record<string, boolean>>({});
 	let propertyAccessCopied = $state<Record<string, boolean>>({});
 	let cleaningReceipts = $derived(data.documents.filter((d) => d.kind === 'receipt'));
@@ -364,7 +376,21 @@
 		<HelpVideoDialog bind:open={dashboardOverviewOpen} video={dashboardOverviewVideo} />
 	{/if}
 
-	{#if data.propertyAccess.length > 0}
+	{#if data.propertyAccessError}
+		<Card>
+			<CardHeader class="pb-3">
+				<CardTitle class="flex items-center gap-2">
+					<ShieldCheck class="text-ocean size-5" /> Property access
+				</CardTitle>
+			</CardHeader>
+			<CardContent>
+				<p class="text-muted-foreground text-sm">
+					Access details couldn’t be loaded right now — please try again later or contact
+					management.
+				</p>
+			</CardContent>
+		</Card>
+	{:else if data.propertyAccess.length > 0}
 		<Card>
 			<CardHeader class="pb-3">
 				<CardTitle class="flex items-center gap-2">

@@ -8,12 +8,14 @@ import assert from 'node:assert/strict';
 import {
 	EMAIL_APP_URL,
 	escapeHtml,
+	inspectionSignedEmail,
 	inviteAdminEmail,
 	newMessageEmail,
 	paymentRecordedEmail,
 	previewEmails,
 	renderEmail,
-	statementReadyEmail
+	statementReadyEmail,
+	tutorialLinks
 } from '../src/lib/server/email-templates.ts';
 
 test('dynamic content is HTML-escaped', () => {
@@ -95,10 +97,10 @@ test('plain-text versions contain no HTML tags', () => {
 	}
 });
 
-test('four fictional previews exist with distinct subjects', () => {
+test('five fictional previews exist with distinct subjects', () => {
 	const previews = previewEmails();
-	assert.deepEqual(previews.map((p) => p.id), ['statement', 'payment', 'message', 'invite']);
-	assert.equal(new Set(previews.map((p) => p.subject)).size, 4);
+	assert.deepEqual(previews.map((p) => p.id), ['statement', 'payment', 'message', 'invite', 'inspection-tenant']);
+	assert.equal(new Set(previews.map((p) => p.subject)).size, 5);
 });
 
 test('invite email: inviter, purpose, pilot, accurate admin permissions, expiry, button', () => {
@@ -137,4 +139,62 @@ test('invite email escapes the inviter name', () => {
 
 test('escapeHtml neutralizes all five risky characters', () => {
 	assert.equal(escapeHtml(`<a href="x">&'</`), '&lt;a href=&quot;x&quot;&gt;&amp;&#39;&lt;/');
+});
+
+test('invite email links BOTH tutorials as plain authenticated pages (html + text)', () => {
+	const r = inviteAdminEmail({
+		inviterName: 'Dana Kim',
+		url: 'https://example.com/invite/secret-token-abc',
+		expires: '2026-11-06T12:00:00.000Z',
+		appUrl: 'https://example.com'
+	});
+	const billing = 'https://example.com/dashboard/manage?watch=billing-overview';
+	const tenant = 'https://example.com/dashboard/manage?watch=tenant-dashboard-overview';
+	for (const url of [billing, tenant]) {
+		assert.ok(r.html.includes(url), `html missing tutorial url: ${url}`);
+		assert.ok(r.text.includes(url), `text missing tutorial url: ${url}`);
+	}
+	// Descriptive text links + sign-in note.
+	assert.ok(r.html.includes('Watch the Billing overview tutorial'));
+	assert.ok(r.html.includes('Watch the Tenant dashboard overview tutorial'));
+	assert.ok(r.html.includes('sign in to watch'));
+	assert.ok(r.text.includes('sign in to watch'));
+	// The invitation token appears ONLY in the acceptance link, never in tutorial URLs.
+	assert.ok(!billing.includes('secret-token-abc') && !tenant.includes('secret-token-abc'));
+	assert.equal(r.html.split('secret-token-abc').length - 1, 1);
+	// Never email file tokens or protected file paths as video credentials.
+	assert.ok(!r.html.includes('/api/files/'));
+	assert.ok(!/[?&]token=/.test(r.html));
+});
+
+test('tenant inspection email includes ONLY the tenant tutorial; landlord copy has none', () => {
+	const base = { address: '102 B Street', unit: 'A', type: 'move_in', date: '2026-10-28', signedAt: '2026-10-30' };
+	const tenantCopy = inspectionSignedEmail({
+		...base,
+		url: 'https://example.com/dashboard/tenant',
+		tutorials: [tutorialLinks('https://example.com').tenantDashboard]
+	});
+	const tenantUrl = 'https://example.com/dashboard/tenant?watch=tenant-dashboard-overview';
+	assert.ok(tenantCopy.html.includes(tenantUrl));
+	assert.ok(tenantCopy.text.includes(tenantUrl));
+	assert.ok(!tenantCopy.html.includes('billing-overview'));
+	assert.ok(!tenantCopy.html.includes('/api/files/'));
+	const landlordCopy = inspectionSignedEmail({ ...base, url: 'https://example.com/dashboard/inspections/abc' });
+	assert.ok(!landlordCopy.html.includes('watch='));
+	assert.ok(!landlordCopy.text.includes('watch='));
+});
+
+test('tutorial titles/descriptions are HTML-escaped and defaults use the production origin', () => {
+	const r = renderEmail('s', {
+		preheader: '',
+		greeting: 'Hi,',
+		heading: 'H',
+		paragraphs: [],
+		tutorials: [{ title: '<b>T</b>', description: 'a & b', url: 'https://example.com/x?watch=y' }]
+	});
+	assert.ok(r.html.includes('&lt;b&gt;T&lt;/b&gt;'));
+	assert.ok(r.html.includes('a &amp; b'));
+	const links = tutorialLinks();
+	assert.ok(links.billingOverview.url.startsWith(`${EMAIL_APP_URL}/dashboard/manage?watch=`));
+	assert.ok(links.tenantDashboard.url.startsWith(`${EMAIL_APP_URL}/dashboard/tenant?watch=`));
 });

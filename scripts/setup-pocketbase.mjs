@@ -284,7 +284,7 @@ function collectionDefs(usersId, applicationsId, leasesId, inspectionsId, charge
 				{ name: 'video_file', type: 'file', required: true, maxSelect: 1, maxSize: 25165824, protected: true, mimeTypes: ['video/mp4'] },
 				{ name: 'thumbnail', type: 'file', required: true, maxSelect: 1, maxSize: 5242880, protected: true, mimeTypes: ['image/jpeg', 'image/png', 'image/webp'] },
 				{ name: 'captions', type: 'file', required: true, maxSelect: 1, maxSize: 1048576, protected: true, mimeTypes: ['text/vtt', 'text/plain'] },
-				{ name: 'active', type: 'bool', required: true }
+				{ name: 'active', type: 'bool' }
 			],
 			// Admins/Owner may watch every active tutorial (including the tenant
 			// walkthrough); tenants only tenant-audience ones; anonymous nobody.
@@ -306,10 +306,13 @@ function collectionDefs(usersId, applicationsId, leasesId, inspectionsId, charge
 				{ name: 'unit', type: 'text', max: 100 },
 				{ name: 'code', type: 'text', required: true, max: 200 },
 				{ name: 'instructions', type: 'text', max: 1500 },
-				{ name: 'active', type: 'bool', required: true }
+				{ name: 'active', type: 'bool' }
 			],
-			listRule: `@request.auth.id != "" && active = true && (@request.auth.role = "tenant" || @request.auth.role = "admin" || @request.auth.role = "owner")`,
-			viewRule: `@request.auth.id != "" && active = true && (@request.auth.role = "tenant" || @request.auth.role = "admin" || @request.auth.role = "owner")`,
+			// Staff see every entry (they maintain them). Tenants only ever read
+			// ACTIVE entries and only while they hold an active lease — enforced
+			// here, not just by the dashboard loader. Anonymous users get nothing.
+			listRule: `@request.auth.id != "" && (@request.auth.role = "admin" || @request.auth.role = "owner" || (@request.auth.role = "tenant" && active = true && @collection.leases.tenant ?= @request.auth.id && @collection.leases.status ?= "active"))`,
+			viewRule: `@request.auth.id != "" && (@request.auth.role = "admin" || @request.auth.role = "owner" || (@request.auth.role = "tenant" && active = true && @collection.leases.tenant ?= @request.auth.id && @collection.leases.status ?= "active"))`,
 			createRule: STAFF,
 			updateRule: STAFF,
 			deleteRule: STAFF

@@ -12,7 +12,7 @@
 import type PocketBase from 'pocketbase';
 import type { Inspection, InspectionNotification } from '$lib/types';
 import { sendMail } from './mail.ts';
-import { inspectionSignedEmail } from './email-templates.ts';
+import { inspectionSignedEmail, tutorialLinks } from './email-templates.ts';
 
 export interface ResolvedRecipient {
 	role: 'landlord' | 'tenant';
@@ -156,7 +156,10 @@ async function attemptDelivery(
 		url:
 			row.role === 'landlord'
 				? `${baseUrl}/dashboard/inspections/${inspection.id}`
-				: `${baseUrl}/dashboard/tenant`
+				: `${baseUrl}/dashboard/tenant`,
+		// Tenant-facing copies only: link the tenant dashboard tutorial (a stable
+		// authenticated app page — no file or invite tokens in email).
+		...(row.role === 'tenant' ? { tutorials: [tutorialLinks(baseUrl).tenantDashboard] } : {})
 	});
 	const attempts = (row.attempts ?? 0) + 1;
 	try {

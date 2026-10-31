@@ -11,7 +11,7 @@
 	import HelpVideoDialog from '$lib/components/HelpVideoDialog.svelte';
 	import { Play } from '@lucide/svelte';
 
-	let { videos }: { videos: HelpVideo[] } = $props();
+	let { videos, autoWatchSlug = '' }: { videos: HelpVideo[]; autoWatchSlug?: string } = $props();
 
 	let open = $state(false);
 	let selected = $state<HelpVideo | null>(null);
@@ -19,6 +19,18 @@
 		selected = video;
 		open = true;
 	}
+
+	// Email/tutorial deep link: ?watch=<slug> opens the matching dialog once
+	// after login (closing it again must stick).
+	let autoWatched = $state(false);
+	$effect(() => {
+		if (autoWatched || !autoWatchSlug) return;
+		const match = videos.find((v) => v.slug === autoWatchSlug);
+		if (match) {
+			autoWatched = true;
+			watch(match);
+		}
+	});
 </script>
 
 {#if videos.length > 0}
