@@ -286,8 +286,12 @@ function collectionDefs(usersId, applicationsId, leasesId, inspectionsId, charge
 				{ name: 'captions', type: 'file', required: true, maxSelect: 1, maxSize: 1048576, protected: true, mimeTypes: ['text/vtt', 'text/plain'] },
 				{ name: 'active', type: 'bool', required: true }
 			],
-			listRule: `@request.auth.id != "" && active = true && ((audience = "tenant" && @request.auth.role = "tenant") || (audience = "admin" && (@request.auth.role = "admin" || @request.auth.role = "owner")))`,
-			viewRule: `@request.auth.id != "" && active = true && ((audience = "tenant" && @request.auth.role = "tenant") || (audience = "admin" && (@request.auth.role = "admin" || @request.auth.role = "owner")))`,
+			// Admins/Owner may watch every active tutorial (including the tenant
+			// walkthrough); tenants only tenant-audience ones; anonymous nobody.
+			// Enforced here (and for protected files via user-scoped file tokens),
+			// not just by hiding buttons in the UI.
+			listRule: `@request.auth.id != "" && active = true && (@request.auth.role = "admin" || @request.auth.role = "owner" || (audience = "tenant" && @request.auth.role = "tenant"))`,
+			viewRule: `@request.auth.id != "" && active = true && (@request.auth.role = "admin" || @request.auth.role = "owner" || (audience = "tenant" && @request.auth.role = "tenant"))`,
 			createRule: STAFF,
 			updateRule: STAFF,
 			deleteRule: STAFF

@@ -12,6 +12,7 @@ import type {
 	Application,
 	Charge,
 	DocRecord,
+	HelpVideo,
 	Inspection,
 	Invitation,
 	Lease,
@@ -160,6 +161,13 @@ export const load: PageServerLoad = async (event) => {
 		.getFullList({ sort: 'label' })
 		.catch(() => [])) as unknown as PropertyAccess[];
 
+	// Help videos for the staff dashboard. Staff see every active tutorial
+	// (PocketBase rules enforce that; tenants only ever get tenant-audience ones).
+	const helpVideos = (await pb
+		.collection('help_videos')
+		.getFullList({ filter: 'active = true', sort: 'created' })
+		.catch(() => [])) as unknown as HelpVideo[];
+
 	// Upcoming dates: lease end within 60 days + future inspections.
 	const today = new Date();
 	const in60 = new Date(today);
@@ -207,6 +215,7 @@ export const load: PageServerLoad = async (event) => {
 		invitations,
 		allUsers,
 		propertyAccess,
+		helpVideos,
 		upcoming,
 		unpaidCharges,
 		moveOutNotices,

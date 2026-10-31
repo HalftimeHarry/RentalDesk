@@ -12,6 +12,7 @@
 	import LeaseCard from '$lib/components/manage/LeaseCard.svelte';
 	import PendingLeaseCard from '$lib/components/manage/PendingLeaseCard.svelte';
 	import WorkflowGuideCard from '$lib/components/manage/WorkflowGuideCard.svelte';
+	import HelpVideosCard from '$lib/components/manage/HelpVideosCard.svelte';
 	import MaintenanceCard from '$lib/components/manage/MaintenanceCard.svelte';
 	import SettingsCard from '$lib/components/manage/SettingsCard.svelte';
 	import TeamCard from '$lib/components/manage/TeamCard.svelte';
@@ -497,6 +498,7 @@
 		<div class="flex flex-col gap-6">
 			<UpcomingCard upcoming={data.upcoming} />
 			<MaintenanceCard maintenance={data.maintenance} {form} />
+			<HelpVideosCard videos={data.helpVideos} />
 		</div>
 	</div>
 

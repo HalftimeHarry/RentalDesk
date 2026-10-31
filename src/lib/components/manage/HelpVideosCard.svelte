@@ -1,0 +1,49 @@
+<script lang="ts">
+	import type { HelpVideo } from '$lib/types';
+	import {
+		Card,
+		CardContent,
+		CardDescription,
+		CardHeader,
+		CardTitle
+	} from '$lib/components/ui/card';
+	import { Button } from '$lib/components/ui/button';
+	import HelpVideoDialog from '$lib/components/HelpVideoDialog.svelte';
+	import { Play } from '@lucide/svelte';
+
+	let { videos }: { videos: HelpVideo[] } = $props();
+
+	let open = $state(false);
+	let selected = $state<HelpVideo | null>(null);
+	function watch(video: HelpVideo) {
+		selected = video;
+		open = true;
+	}
+</script>
+
+{#if videos.length > 0}
+	<Card>
+		<CardHeader class="pb-2">
+			<CardTitle class="flex items-center gap-2">
+				<Play class="text-ocean size-5" /> Help videos
+			</CardTitle>
+			<CardDescription>Short walkthroughs of the dashboards.</CardDescription>
+		</CardHeader>
+		<CardContent class="flex flex-col gap-2">
+			{#each videos as video (video.id)}
+				<div class="flex flex-wrap items-center gap-2 rounded-lg border p-3">
+					<div class="min-w-0 flex-1">
+						<p class="text-sm font-medium">{video.title}</p>
+						{#if video.description}
+							<p class="text-muted-foreground text-xs">{video.description}</p>
+						{/if}
+					</div>
+					<Button variant="outline" size="sm" class="min-h-11" onclick={() => watch(video)}>
+						<Play class="size-4" /> Watch
+					</Button>
+				</div>
+			{/each}
+		</CardContent>
+	</Card>
+	<HelpVideoDialog bind:open video={selected} />
+{/if}
