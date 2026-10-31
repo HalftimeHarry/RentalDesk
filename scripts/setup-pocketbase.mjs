@@ -286,12 +286,11 @@ function collectionDefs(usersId, applicationsId, leasesId, inspectionsId, charge
 				{ name: 'captions', type: 'file', required: true, maxSelect: 1, maxSize: 1048576, protected: true, mimeTypes: ['text/vtt', 'text/plain'] },
 				{ name: 'active', type: 'bool' }
 			],
-			// Admins/Owner may watch every active tutorial (including the tenant
-			// walkthrough); tenants only tenant-audience ones; anonymous nobody.
-			// Enforced here (and for protected files via user-scoped file tokens),
-			// not just by hiding buttons in the UI.
-			listRule: `@request.auth.id != "" && active = true && (@request.auth.role = "admin" || @request.auth.role = "owner" || (audience = "tenant" && @request.auth.role = "tenant"))`,
-			viewRule: `@request.auth.id != "" && active = true && (@request.auth.role = "admin" || @request.auth.role = "owner" || (audience = "tenant" && @request.auth.role = "tenant"))`,
+			// Staff may view every active video (the management dashboard links the
+			// tenant walkthrough too); tenants only see tenant-audience videos.
+			listRule: `@request.auth.id != "" && active = true && ((audience = "tenant" && @request.auth.role = "tenant") || ${STAFF})`,
+			viewRule: `@request.auth.id != "" && active = true && ((audience = "tenant" && @request.auth.role = "tenant") || ${STAFF})`,
+
 			createRule: STAFF,
 			updateRule: STAFF,
 			deleteRule: STAFF

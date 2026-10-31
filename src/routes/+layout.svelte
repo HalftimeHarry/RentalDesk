@@ -54,6 +54,15 @@
 		data.user ? data.user.role.charAt(0).toUpperCase() + data.user.role.slice(1) : ''
 	);
 
+	// Compact bottom nav on small screens for the staff management dashboard only;
+	// items keep a ≥44px (min-h-11) tap target. All other views are unchanged.
+	let compactNav = $state(false);
+	$effect(() => {
+		compactNav =
+			page.url.pathname === '/dashboard/manage' &&
+			(data.user?.role === 'owner' || data.user?.role === 'admin');
+	});
+
 	// Only the content area scrolls; reset its scroll position on navigation.
 	let mainEl: HTMLElement | undefined = $state(undefined);
 	afterNavigate(() => mainEl?.scrollTo({ top: 0 }));
@@ -81,7 +90,7 @@
 </div>
 
 <div class="flex h-dvh flex-col overflow-hidden print:h-auto print:overflow-visible">
-	<header class="bg-seafoam text-navy sticky top-0 z-40 border-b border-navy/15 print:hidden">
+	<header class={cn('bg-seafoam text-navy sticky top-0 z-40 border-b border-navy/15 print:hidden', compactNav ? 'hidden sm:flex' : 'flex')}>
 		<div class="mx-auto flex h-16 w-full max-w-6xl items-center gap-3 px-4">
 			<a href="/" class="flex items-center gap-2">
 				<img src={logo} alt="Rental Desk" class="h-10 w-auto object-contain" />
@@ -134,7 +143,12 @@
 		style="padding-bottom: env(safe-area-inset-bottom);"
 		aria-label="Primary"
 	>
-	<div class="mx-auto flex w-full max-w-md items-stretch justify-center gap-2 px-3 pt-2.5 pb-2.5">
+	<div
+		class={cn(
+			'mx-auto flex w-full max-w-md items-stretch justify-center px-3',
+			compactNav ? 'gap-1.5 pt-1.5 pb-1.5 sm:gap-2 sm:pt-2.5 sm:pb-2.5' : 'gap-2 pt-2.5 pb-2.5'
+		)}
+	>
 		{#each navItems as item (item.href)}
 			{@const Icon = item.icon}
 			{@const active = isActive(item.href)}
@@ -142,12 +156,15 @@
 				href={item.href}
 				aria-current={active ? 'page' : undefined}
 				class={cn(
-					'flex min-h-12 flex-1 flex-col items-center justify-center gap-0.5 rounded-xl border px-3 py-2 text-xs font-semibold shadow-sm transition-all',
+					'flex flex-1 flex-col items-center justify-center rounded-xl border font-semibold shadow-sm transition-all',
+					compactNav
+						? 'min-h-11 gap-0 px-2 py-1 text-[11px] sm:min-h-12 sm:gap-0.5 sm:px-3 sm:py-2 sm:text-xs'
+						: 'min-h-12 gap-0.5 px-3 py-2 text-xs',
 					colorClasses[item.color],
 					active && 'scale-[1.03] shadow-md ring-2 ring-white'
 				)}
 			>
-				<Icon class="size-6" />
+				<Icon class={compactNav ? 'size-5 sm:size-6' : 'size-6'} />
 				<span>{item.label}</span>
 			</a>
 		{/each}

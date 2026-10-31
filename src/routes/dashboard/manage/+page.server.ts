@@ -161,11 +161,14 @@ export const load: PageServerLoad = async (event) => {
 		.getFullList({ sort: 'label' })
 		.catch(() => [])) as unknown as PropertyAccess[];
 
-	// Help videos for the staff dashboard. Staff see every active tutorial
-	// (PocketBase rules enforce that; tenants only ever get tenant-audience ones).
+	// Staff walkthrough videos: the tenant dashboard overview and the billing
+	// overview, surfaced together at the top of the management dashboard.
 	const helpVideos = (await pb
 		.collection('help_videos')
-		.getFullList({ filter: 'active = true', sort: 'created' })
+		.getFullList({
+			filter: 'active = true && (placement = "tenant_dashboard" || placement = "manage_billing")',
+			sort: 'created'
+		})
 		.catch(() => [])) as unknown as HelpVideo[];
 
 	// Upcoming dates: lease end within 60 days + future inspections.
@@ -324,8 +327,9 @@ export const actions: Actions = {
 			deposit_cents,
 			min_lease_months: Math.max(1, Number(form.get('min_lease_months')) || 3),
 			available_date: String(form.get('available_date') ?? ''),
-			// Checkbox absent from form data means false — false is preserved.
-			is_available: form.get('is_available') === 'on',
+			// Checkbox values are explicit strings; normalize both checked values and
+			// browsers that submit the legacy 'on' value.
+			is_available: form.get('is_available') === 'true' || form.get('is_available') === 'on',
 			// Blank fee input keeps the stored value (and never wipes it accidentally).
 			screening_fee_cents: screening_fee ?? existingFee
 		};
