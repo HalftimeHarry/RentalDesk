@@ -309,10 +309,13 @@ function collectionDefs(usersId, applicationsId, leasesId, inspectionsId, charge
 				{ name: 'active', type: 'bool' }
 			],
 			// Staff see every entry (they maintain them). Tenants only ever read
-			// ACTIVE entries and only while they hold an active lease — enforced
-			// here, not just by the dashboard loader. Anonymous users get nothing.
-			listRule: `@request.auth.id != "" && (@request.auth.role = "admin" || @request.auth.role = "owner" || (@request.auth.role = "tenant" && active = true && @collection.leases.tenant ?= @request.auth.id && @collection.leases.status ?= "active"))`,
-			viewRule: `@request.auth.id != "" && (@request.auth.role = "admin" || @request.auth.role = "owner" || (@request.auth.role = "tenant" && active = true && @collection.leases.tenant ?= @request.auth.id && @collection.leases.status ?= "active"))`,
+			// ACTIVE entries, only while they hold an ACTIVE lease, and only for
+			// their own property/unit (matched against the unit listing settings):
+			// gates must be property-wide (blank property) or match the listing's
+			// address/unit name; lockboxes must be unit-wide (blank unit) or match.
+			// Enforced here, not just by the dashboard loader. Anonymous: nothing.
+			listRule: `@request.auth.id != "" && (@request.auth.role = "admin" || @request.auth.role = "owner" || (@request.auth.role = "tenant" && active = true && @collection.leases.tenant ?= @request.auth.id && @collection.leases.status ?= "active" && ((type = "gate" && (property = "" || @collection.settings.address ?= property || @collection.settings.unit_name ?= property)) || (type = "door_lockbox" && (unit = "" || @collection.settings.unit_name ?= unit || @collection.settings.address ?= unit)))))`,
+			viewRule: `@request.auth.id != "" && (@request.auth.role = "admin" || @request.auth.role = "owner" || (@request.auth.role = "tenant" && active = true && @collection.leases.tenant ?= @request.auth.id && @collection.leases.status ?= "active" && ((type = "gate" && (property = "" || @collection.settings.address ?= property || @collection.settings.unit_name ?= property)) || (type = "door_lockbox" && (unit = "" || @collection.settings.unit_name ?= unit || @collection.settings.address ?= unit)))))`,
 			createRule: STAFF,
 			updateRule: STAFF,
 			deleteRule: STAFF
@@ -566,7 +569,9 @@ if (!settings || settings.totalItems === 0) {
 	await pb.collection('settings').create({
 		unit_name: 'Rental Unit',
 		description: 'A clean, well-maintained unit ready for move-in.',
-		address: '',
+		// Fictional listing address — property_access entries scope against it,
+		// so the seeded gate/lockbox fixtures must use the same value.
+		address: '2728 B Street, San Diego, CA 92102',
 		monthly_rent_cents: 225000, // $2,250
 		deposit_cents: 50000, // $500
 		min_lease_months: 3,
