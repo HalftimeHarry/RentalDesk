@@ -420,8 +420,21 @@ export const actions: Actions = {
 		if (!label || !code) {
 			return fail(400, { section: 'property_access', message: 'Label and code are required.' });
 		}
+		// Scope is required — a blank property/unit is never tenant-visible, so
+		// reject it up front with a clear message instead of saving a dead entry.
+		if (type === 'gate' && !property) {
+			return fail(400, {
+				section: 'property_access',
+				message:
+					'Gate entries must name their property (exactly the listing address) — a gate is "this property, all applicable units", never every property.'
+			});
+		}
 		if (type === 'door_lockbox' && !unit) {
-			return fail(400, { section: 'property_access', message: 'Door lockboxes must include a unit.' });
+			return fail(400, {
+				section: 'property_access',
+				message:
+					'Door lockboxes must name their unit (exactly the listing unit name) — a lockbox never applies across units.'
+			});
 		}
 
 		const payload = {

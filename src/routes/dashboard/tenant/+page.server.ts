@@ -112,10 +112,12 @@ export const load: PageServerLoad = async (event) => {
 			const targetUnit = settings?.unit_name || '';
 			propertyAccess = allAccess.filter((entry) => {
 				if (!entry.active) return false;
+				// Scope is required: a gate names its property, a lockbox its unit.
+				// Blank scope fails closed — never "every property"/"every unit".
 				if (entry.type === 'gate') {
-					return !entry.property || entry.property === targetProperty || entry.property === targetUnit;
+					return !!entry.property && (entry.property === targetProperty || entry.property === targetUnit);
 				}
-				return !entry.unit || entry.unit === targetUnit || entry.unit === targetProperty;
+				return !!entry.unit && (entry.unit === targetUnit || entry.unit === targetProperty);
 			});
 		} catch (e) {
 			console.error('tenant dashboard: property_access query failed', e);

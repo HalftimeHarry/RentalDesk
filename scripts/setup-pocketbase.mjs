@@ -310,12 +310,13 @@ function collectionDefs(usersId, applicationsId, leasesId, inspectionsId, charge
 			],
 			// Staff see every entry (they maintain them). Tenants only ever read
 			// ACTIVE entries, only while they hold an ACTIVE lease, and only for
-			// their own property/unit (matched against the unit listing settings):
-			// gates must be property-wide (blank property) or match the listing's
-			// address/unit name; lockboxes must be unit-wide (blank unit) or match.
+			// their own property/unit (matched against the unit listing settings).
+			// Scope is REQUIRED: a gate must name its property ("this property,
+			// all applicable units" — never "every property") and a lockbox must
+			// name its unit; blank scope fails closed and is never tenant-visible.
 			// Enforced here, not just by the dashboard loader. Anonymous: nothing.
-			listRule: `@request.auth.id != "" && (@request.auth.role = "admin" || @request.auth.role = "owner" || (@request.auth.role = "tenant" && active = true && @collection.leases.tenant ?= @request.auth.id && @collection.leases.status ?= "active" && ((type = "gate" && (property = "" || @collection.settings.address ?= property || @collection.settings.unit_name ?= property)) || (type = "door_lockbox" && (unit = "" || @collection.settings.unit_name ?= unit || @collection.settings.address ?= unit)))))`,
-			viewRule: `@request.auth.id != "" && (@request.auth.role = "admin" || @request.auth.role = "owner" || (@request.auth.role = "tenant" && active = true && @collection.leases.tenant ?= @request.auth.id && @collection.leases.status ?= "active" && ((type = "gate" && (property = "" || @collection.settings.address ?= property || @collection.settings.unit_name ?= property)) || (type = "door_lockbox" && (unit = "" || @collection.settings.unit_name ?= unit || @collection.settings.address ?= unit)))))`,
+			listRule: `@request.auth.id != "" && (@request.auth.role = "admin" || @request.auth.role = "owner" || (@request.auth.role = "tenant" && active = true && @collection.leases.tenant ?= @request.auth.id && @collection.leases.status ?= "active" && ((type = "gate" && property != "" && (@collection.settings.address ?= property || @collection.settings.unit_name ?= property)) || (type = "door_lockbox" && unit != "" && (@collection.settings.unit_name ?= unit || @collection.settings.address ?= unit)))))`,
+			viewRule: `@request.auth.id != "" && (@request.auth.role = "admin" || @request.auth.role = "owner" || (@request.auth.role = "tenant" && active = true && @collection.leases.tenant ?= @request.auth.id && @collection.leases.status ?= "active" && ((type = "gate" && property != "" && (@collection.settings.address ?= property || @collection.settings.unit_name ?= property)) || (type = "door_lockbox" && unit != "" && (@collection.settings.unit_name ?= unit || @collection.settings.address ?= unit)))))`,
 			createRule: STAFF,
 			updateRule: STAFF,
 			deleteRule: STAFF
