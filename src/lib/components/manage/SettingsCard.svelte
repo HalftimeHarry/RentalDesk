@@ -235,12 +235,22 @@
 					</select>
 				</label>
 				<label class="flex flex-col gap-1 text-sm">
-					<span>Property</span>
-					<Input name="property" value={accessDraft.property} placeholder="Property / gate name" />
+					<span>Property{accessDraft.type === 'gate' ? ' (required — exact listing address)' : ''}</span>
+					<Input
+						name="property"
+						value={accessDraft.property}
+						placeholder="Property address (as on the listing)"
+						required={accessDraft.type === 'gate'}
+					/>
 				</label>
 				<label class="flex flex-col gap-1 text-sm">
-					<span>Unit</span>
-					<Input name="unit" value={accessDraft.unit} placeholder="Unit / lockbox location" />
+					<span>Unit{accessDraft.type === 'door_lockbox' ? ' (required — exact listing unit name)' : ''}</span>
+					<Input
+						name="unit"
+						value={accessDraft.unit}
+						placeholder="Unit / lockbox location"
+						required={accessDraft.type === 'door_lockbox'}
+					/>
 				</label>
 				<label class="flex flex-col gap-1 text-sm md:col-span-2">
 					<span>Code</span>

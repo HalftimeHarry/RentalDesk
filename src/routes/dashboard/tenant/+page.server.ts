@@ -99,21 +99,31 @@ export const load: PageServerLoad = async (event) => {
 	}
 
 	let propertyAccess: PropertyAccess[] = [];
-	try {
-		const allAccess = (await pb
-			.collection('property_access')
-			.getFullList({ sort: 'label' })) as unknown as PropertyAccess[];
-		const targetProperty = settings?.address || '';
-		const targetUnit = settings?.unit_name || '';
-		propertyAccess = allAccess.filter((entry) => {
-			if (!entry.active) return false;
-			if (entry.type === 'gate') {
-				return !entry.property || entry.property === targetProperty || entry.property === targetUnit;
-			}
-			return !entry.unit || entry.unit === targetUnit || entry.unit === targetProperty;
-		});
-	} catch {
-		propertyAccess = [];
+	let propertyAccessError = false;
+	// Codes are shown only to a tenant holding an ACTIVE lease (PocketBase rules
+	// enforce the same server-side). A failed query is NOT the same as "no
+	// applicable entries" — it is logged and flagged instead of silently hidden.
+	if (lease && lease.status === 'active') {
+		try {
+			const allAccess = (await pb
+				.collection('property_access')
+				.getFullList({ sort: 'label' })) as unknown as PropertyAccess[];
+			const targetProperty = settings?.address || '';
+			const targetUnit = settings?.unit_name || '';
+			propertyAccess = allAccess.filter((entry) => {
+				if (!entry.active) return false;
+				// Scope is required: a gate names its property, a lockbox its unit.
+				// Blank scope fails closed — never "every property"/"every unit".
+				if (entry.type === 'gate') {
+					return !!entry.property && (entry.property === targetProperty || entry.property === targetUnit);
+				}
+				return !!entry.unit && (entry.unit === targetUnit || entry.unit === targetProperty);
+			});
+		} catch (e) {
+			console.error('tenant dashboard: property_access query failed', e);
+			propertyAccess = [];
+			propertyAccessError = true;
+		}
 	}
 
 	return {
@@ -130,6 +140,7 @@ export const load: PageServerLoad = async (event) => {
 		moveOutNotices,
 		helpVideos,
 		propertyAccess,
+		propertyAccessError,
 		ledger: summarizeLedger(charges, payments)
 	};
 };

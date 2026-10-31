@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { ActionData, PageData } from './$types';
 	import { enhance } from '$app/forms';
+	import type { SubmitFunction } from '$app/forms';
 	import { untrack } from 'svelte';
 	import { Button } from '$lib/components/ui/button';
 	import {
@@ -36,6 +37,7 @@
 		Download,
 		Flag,
 		KeyRound,
+		LoaderCircle,
 		Mail,
 		PenLine,
 		Plus,
@@ -88,7 +90,41 @@
 	let tenantFile: HTMLInputElement | undefined = $state(undefined);
 	let dirty = $state(false);
 	let sigError = $state('');
+	// Which signature is currently being saved ('' = none). Set before the request
+	// leaves so the UI shows immediate feedback and repeat taps are ignored.
+	let sigPending = $state<'' | 'landlord' | 'tenant'>('');
 	let canCompleteInspection = $derived(fullySigned && !finalized && !dirty);
+
+	// Route every submission of the main form; signature posts get pending-state
+	// tracking and keep the form un-reset on failure so the drawing and the
+	// acknowledgement survive for a safe retry.
+	const formEnhance: SubmitFunction = ({ action }) => {
+		const signing: '' | 'landlord' | 'tenant' = action.search.includes('signLandlord')
+			? 'landlord'
+			: action.search.includes('signTenant')
+				? 'tenant'
+				: '';
+		return async ({ result, update }) => {
+			if (!signing) {
+				await update();
+				return;
+			}
+			if (result.type === 'error') {
+				// Network/transport failure — nothing reached the server for sure.
+				// Keep the drawing and inputs so the user can simply tap Sign again.
+				sigPending = '';
+				sigError =
+					'Network problem — the signature was not saved. Check the connection and tap Sign again.';
+				return;
+			}
+			// Success re-renders from the fresh record; failure keeps the form
+			// (drawing included) intact for a retry with a visible server message.
+			// Pending stays on until the reload lands so a tap in between can't
+			// fire a duplicate submission.
+			await update({ reset: result.type === 'success' });
+			sigPending = '';
+		};
+	};
 
 	function markDirty(e: Event) {
 		// Typing in the signature card (names, etc.) must not mark content dirty.
@@ -98,13 +134,16 @@
 
 	async function submitSignature(e: MouseEvent, who: 'landlord' | 'tenant') {
 		e.preventDefault();
+		if (sigPending) return; // a save is already in flight — ignore repeat taps
 		sigError = '';
 		const pad = who === 'landlord' ? landlordPad : tenantPad;
 		const input = who === 'landlord' ? landlordFile : tenantFile;
 		const btn = e.currentTarget as HTMLButtonElement;
 		if (!pad || !input || !btn.form) return;
+		sigPending = who; // immediate feedback before the (async) canvas export
 		const file = await pad.toFile(`${who}-signature.png`);
 		if (!file) {
+			sigPending = '';
 			sigError = 'Draw the signature in the box first.';
 			return;
 		}
@@ -225,7 +264,7 @@
 				method="POST"
 				action="?/saveInspection"
 				enctype="multipart/form-data"
-				use:enhance
+				use:enhance={formEnhance}
 				oninput={markDirty}
 				class="contents"
 			>
@@ -651,8 +690,27 @@
 						</p>
 					</div>
 					<div class="flex flex-col gap-6">
-				{#if form?.section === 'signatures'}
-					<p class="bg-turquoise/15 text-navy rounded-md px-3 py-2 text-sm">{form.message}</p>
+				{#if sigPending}
+					<p
+						class="bg-ocean/10 text-navy flex items-center gap-2 rounded-md px-3 py-2 text-sm"
+						role="status"
+						aria-live="assertive"
+					>
+						<LoaderCircle class="size-4 shrink-0 animate-spin" />
+						Saving {sigPending} signature… This can take a few seconds — keep this page open and
+						don't tap again.
+					</p>
+				{:else if form?.section === 'signatures'}
+					<p
+						class={cn(
+							'rounded-md px-3 py-2 text-sm',
+							page.status >= 400 ? 'bg-destructive/10 text-destructive' : 'bg-turquoise/15 text-navy'
+						)}
+						role="status"
+						aria-live="polite"
+					>
+						{form.message}
+					</p>
 				{/if}
 				{#if sigError}
 					<p class="bg-destructive/10 text-destructive rounded-md px-3 py-2 text-sm">{sigError}</p>
@@ -735,10 +793,16 @@
 								type="submit"
 								formaction={who === 'landlord' ? '?/signLandlord' : '?/signTenant'}
 								class="min-h-12"
-								disabled={dirty || finalized}
+								disabled={dirty || finalized || !!sigPending}
+								aria-busy={sigPending === who}
 								onclick={(e) => submitSignature(e, constWho)}
 							>
-								Sign as {who === 'landlord' ? 'Landlord' : 'Tenant'}
+								{#if sigPending === who}
+									<LoaderCircle class="size-4 animate-spin" />
+									Saving {who} signature…
+								{:else}
+									Sign as {who === 'landlord' ? 'Landlord' : 'Tenant'}
+								{/if}
 							</Button>
 						{/if}
 					</section>

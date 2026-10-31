@@ -15,6 +15,29 @@ import { formatDate, formatMoney } from '../format.ts';
 /** Production dashboard base for email links. */
 export const EMAIL_APP_URL = 'https://bstreet102.netlify.app';
 
+/** Stable authenticated tutorial deep links (?watch=<slug> opens the dialog
+ *  after login). Plain app URLs only — no file tokens, no invite tokens. */
+export function tutorialLinks(appUrl: string = EMAIL_APP_URL) {
+	const base = appUrl.replace(/\/+$/, '');
+	return {
+		billingOverview: {
+			title: 'Billing overview',
+			description: 'A quick tour of the admin billing dashboard and account status.',
+			url: `${base}/dashboard/manage?watch=billing-overview`
+		},
+		tenantDashboardAdmin: {
+			title: 'Tenant dashboard overview',
+			description: 'See the dashboard your tenants use — balances, payments, and requests.',
+			url: `${base}/dashboard/manage?watch=tenant-dashboard-overview`
+		},
+		tenantDashboard: {
+			title: 'Tenant dashboard overview',
+			description: 'A quick walkthrough of your dashboard, key balances, and navigation.',
+			url: `${base}/dashboard/tenant?watch=tenant-dashboard-overview`
+		}
+	};
+}
+
 export function escapeHtml(value: unknown): string {
 	return String(value ?? '')
 		.replace(/&/g, '&amp;')
@@ -29,6 +52,14 @@ export interface EmailItem {
 	value: string;
 }
 
+/** Tutorial link block: clickable play-badge card + descriptive text link.
+ *  URLs are stable authenticated app pages — NEVER file tokens or invite tokens. */
+export interface EmailTutorial {
+	title: string;
+	description: string;
+	url: string;
+}
+
 export interface EmailTemplateInput {
 	/** Short inbox preheader (hidden in the body). */
 	preheader: string;
@@ -40,6 +71,8 @@ export interface EmailTemplateInput {
 	items?: EmailItem[];
 	/** One primary action button. */
 	action?: { label: string; url: string };
+	/** Optional tutorial links (sign-in required to watch). */
+	tutorials?: EmailTutorial[];
 }
 
 export interface RenderedEmail {
@@ -69,6 +102,33 @@ export function renderEmail(subject: string, input: EmailTemplateInput): Rendere
 </td></tr>`
 		: '';
 
+	// Tutorial cards: a clickable play-badge "thumbnail" built from plain markup
+	// (the real thumbnails are protected files and stay in the app) plus a
+	// descriptive text link. Watching requires signing in — the links are stable
+	// authenticated pages, never tokens.
+	const tutorialsHtml =
+		input.tutorials && input.tutorials.length > 0
+			? `<tr><td style="padding:20px 0 0;">
+  <p style="margin:0 0 10px;color:#16324f;font-size:15px;font-weight:600;">Video tutorials (sign in to watch)</p>
+  ${input.tutorials
+		.map(
+			(t) => `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 10px;border:1px solid #e8e0d2;border-radius:10px;">
+  <tr>
+    <td width="64" align="center" style="padding:12px 0 12px 12px;">
+      <a href="${esc(t.url)}" style="display:inline-block;width:48px;height:48px;background-color:#075985;border-radius:24px;color:#ffffff;font-size:20px;line-height:48px;text-align:center;text-decoration:none;" aria-label="Watch ${esc(t.title)}">&#9658;</a>
+    </td>
+    <td style="padding:12px;font-family:Arial,Helvetica,sans-serif;">
+      <p style="margin:0;color:#16324f;font-size:14px;font-weight:600;">${esc(t.title)}</p>
+      <p style="margin:2px 0 6px;color:#5b7288;font-size:13px;line-height:1.4;">${esc(t.description)}</p>
+      <a href="${esc(t.url)}" style="color:#075985;font-size:13px;font-weight:600;text-decoration:underline;">Watch the ${esc(t.title)} tutorial</a>
+    </td>
+  </tr>
+</table>`
+		)
+		.join('\n  ')}
+</td></tr>`
+			: '';
+
 	const html = `<!doctype html>
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -88,7 +148,7 @@ export function renderEmail(subject: string, input: EmailTemplateInput): Rendere
       <h1 style="margin:0 0 16px;color:#16324f;font-size:20px;line-height:1.3;">${esc(input.heading)}</h1>
       ${input.paragraphs.map((p) => `<p style="margin:0 0 12px;color:#16324f;font-size:15px;line-height:1.55;">${esc(p)}</p>`).join('\n      ')}
       ${itemsHtml ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:8px 0 4px;">${itemsHtml}</table>` : ''}
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">${actionHtml}</table>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0">${actionHtml}${tutorialsHtml}</table>
     </td></tr>
     <tr>
       <td style="padding:16px 28px;border-top:1px solid #eef2f5;background-color:#fdfcf9;">
@@ -110,6 +170,13 @@ export function renderEmail(subject: string, input: EmailTemplateInput): Rendere
 		...input.paragraphs,
 		...(input.items ?? []).map((i) => `- ${i.label}: ${i.value}`),
 		...(input.action ? ['', `${input.action.label}: ${input.action.url}`] : []),
+		...(input.tutorials && input.tutorials.length > 0
+			? [
+					'',
+					'Video tutorials (sign in to watch):',
+					...input.tutorials.map((t) => `- ${t.title} — ${t.description} Watch: ${t.url}`)
+				]
+			: []),
 		'',
 		'--',
 		FOOTER_LINE,
@@ -188,6 +255,8 @@ export function inspectionSignedEmail(input: {
 	date: string; // YYYY-MM-DD
 	signedAt: string; // YYYY-MM-DD ('' tolerated)
 	url: string; // secure app link to the exact signed report — never a file token
+	/** Tenant-facing copies only: include the tenant dashboard tutorial. */
+	tutorials?: EmailTutorial[];
 }): RenderedEmail {
 	const typeLabels: Record<string, string> = {
 		move_in: 'Move-in',
@@ -210,7 +279,8 @@ export function inspectionSignedEmail(input: {
 			{ label: 'Inspection date', value: formatDate(input.date) },
 			...(input.signedAt ? [{ label: 'Fully signed', value: formatDate(input.signedAt) }] : [])
 		],
-		action: { label: 'View signed report', url: input.url }
+		action: { label: 'View signed report', url: input.url },
+		...(input.tutorials && input.tutorials.length > 0 ? { tutorials: input.tutorials } : {})
 	});
 }
 
@@ -218,7 +288,10 @@ export function inviteAdminEmail(input: {
 	inviterName: string;
 	url: string;
 	expires: string; // ISO datetime — shown as the actual expiration date
+	/** App origin for tutorial links (defaults to production). */
+	appUrl?: string;
 }): RenderedEmail {
+	const tutorials = tutorialLinks(input.appUrl);
 	return renderEmail(`${input.inviterName} invited you to Rental Desk`, {
 		preheader: `${input.inviterName} invited you to help manage a rental property.`,
 		greeting: 'Hello,',
@@ -228,9 +301,12 @@ export function inviteAdminEmail(input: {
 			'Rental Desk brings the property listing, applications, lease documents, billing, maintenance, inspections, and the move-out process into one place — with the goal of clear communication and a personalized experience for both landlords and tenants.',
 			'We’re in a six-month pilot (through April 2027), so feedback is very welcome along the way.',
 			'As an Admin you can review applicants, manage billing and payments, track maintenance and inspections, handle move-out notices, message applicants and tenants, and invite other admins. Directly changing account roles stays with the Owner.',
+			'The short tutorials below show you around — accept the invitation and sign in first, then they open right in your dashboard.',
 			`This invitation expires on ${formatDate(input.expires)}. If you weren’t expecting it, you can simply ignore this email.`
 		],
-		action: { label: 'Accept admin invitation', url: input.url }
+		action: { label: 'Accept admin invitation', url: input.url },
+		// Both staff tutorials — plain authenticated app links (no tokens).
+		tutorials: [tutorials.billingOverview, tutorials.tenantDashboardAdmin]
 	});
 }
 
@@ -265,10 +341,20 @@ export function previewEmails(): EmailPreview[] {
 		url: `${EMAIL_APP_URL}/invite/00000000-0000-0000-0000-000000000000`,
 		expires: '2026-11-06T12:00:00.000Z'
 	});
+	const inspectionTenant = inspectionSignedEmail({
+		address: '102 B Street',
+		unit: 'A',
+		type: 'move_in',
+		date: '2026-10-28',
+		signedAt: '2026-10-30',
+		url: `${EMAIL_APP_URL}/dashboard/tenant`,
+		tutorials: [tutorialLinks().tenantDashboard]
+	});
 	return [
 		{ id: 'statement', title: 'Monthly statement ready', ...statement },
 		{ id: 'payment', title: 'Payment recorded', ...payment },
 		{ id: 'message', title: 'New message notification', ...message },
-		{ id: 'invite', title: 'Admin invitation', ...invite }
+		{ id: 'invite', title: 'Admin invitation', ...invite },
+		{ id: 'inspection-tenant', title: 'Inspection signed (tenant copy)', ...inspectionTenant }
 	];
 }

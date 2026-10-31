@@ -10,7 +10,8 @@ export function isStaff(user: User | null): boolean {
 /** Require a logged-in user; redirects to /login otherwise. */
 export function requireUser(event: RequestEvent): User {
 	if (!event.locals.user) {
-		redirect(303, `/login?next=${encodeURIComponent(event.url.pathname)}`);
+		// Keep the query string so deep links (e.g. ?watch=<tutorial>) survive login.
+		redirect(303, `/login?next=${encodeURIComponent(event.url.pathname + event.url.search)}`);
 	}
 	return event.locals.user;
 }

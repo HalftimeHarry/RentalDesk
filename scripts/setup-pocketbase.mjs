@@ -284,10 +284,14 @@ function collectionDefs(usersId, applicationsId, leasesId, inspectionsId, charge
 				{ name: 'video_file', type: 'file', required: true, maxSelect: 1, maxSize: 25165824, protected: true, mimeTypes: ['video/mp4'] },
 				{ name: 'thumbnail', type: 'file', required: true, maxSelect: 1, maxSize: 5242880, protected: true, mimeTypes: ['image/jpeg', 'image/png', 'image/webp'] },
 				{ name: 'captions', type: 'file', required: true, maxSelect: 1, maxSize: 1048576, protected: true, mimeTypes: ['text/vtt', 'text/plain'] },
-				{ name: 'active', type: 'bool', required: true }
+				{ name: 'active', type: 'bool' }
 			],
-			listRule: `@request.auth.id != "" && active = true && ((audience = "tenant" && @request.auth.role = "tenant") || (audience = "admin" && (@request.auth.role = "admin" || @request.auth.role = "owner")))`,
-			viewRule: `@request.auth.id != "" && active = true && ((audience = "tenant" && @request.auth.role = "tenant") || (audience = "admin" && (@request.auth.role = "admin" || @request.auth.role = "owner")))`,
+			// Admins/Owner may watch every active tutorial (including the tenant
+			// walkthrough); tenants only tenant-audience ones; anonymous nobody.
+			// Enforced here (and for protected files via user-scoped file tokens),
+			// not just by hiding buttons in the UI.
+			listRule: `@request.auth.id != "" && active = true && (@request.auth.role = "admin" || @request.auth.role = "owner" || (audience = "tenant" && @request.auth.role = "tenant"))`,
+			viewRule: `@request.auth.id != "" && active = true && (@request.auth.role = "admin" || @request.auth.role = "owner" || (audience = "tenant" && @request.auth.role = "tenant"))`,
 			createRule: STAFF,
 			updateRule: STAFF,
 			deleteRule: STAFF
@@ -302,10 +306,17 @@ function collectionDefs(usersId, applicationsId, leasesId, inspectionsId, charge
 				{ name: 'unit', type: 'text', max: 100 },
 				{ name: 'code', type: 'text', required: true, max: 200 },
 				{ name: 'instructions', type: 'text', max: 1500 },
-				{ name: 'active', type: 'bool', required: true }
+				{ name: 'active', type: 'bool' }
 			],
-			listRule: `@request.auth.id != "" && active = true && (@request.auth.role = "tenant" || @request.auth.role = "admin" || @request.auth.role = "owner")`,
-			viewRule: `@request.auth.id != "" && active = true && (@request.auth.role = "tenant" || @request.auth.role = "admin" || @request.auth.role = "owner")`,
+			// Staff see every entry (they maintain them). Tenants only ever read
+			// ACTIVE entries, only while they hold an ACTIVE lease, and only for
+			// their own property/unit (matched against the unit listing settings).
+			// Scope is REQUIRED: a gate must name its property ("this property,
+			// all applicable units" — never "every property") and a lockbox must
+			// name its unit; blank scope fails closed and is never tenant-visible.
+			// Enforced here, not just by the dashboard loader. Anonymous: nothing.
+			listRule: `@request.auth.id != "" && (@request.auth.role = "admin" || @request.auth.role = "owner" || (@request.auth.role = "tenant" && active = true && @collection.leases.tenant ?= @request.auth.id && @collection.leases.status ?= "active" && ((type = "gate" && property != "" && (@collection.settings.address ?= property || @collection.settings.unit_name ?= property)) || (type = "door_lockbox" && unit != "" && (@collection.settings.unit_name ?= unit || @collection.settings.address ?= unit)))))`,
+			viewRule: `@request.auth.id != "" && (@request.auth.role = "admin" || @request.auth.role = "owner" || (@request.auth.role = "tenant" && active = true && @collection.leases.tenant ?= @request.auth.id && @collection.leases.status ?= "active" && ((type = "gate" && property != "" && (@collection.settings.address ?= property || @collection.settings.unit_name ?= property)) || (type = "door_lockbox" && unit != "" && (@collection.settings.unit_name ?= unit || @collection.settings.address ?= unit)))))`,
 			createRule: STAFF,
 			updateRule: STAFF,
 			deleteRule: STAFF
@@ -559,7 +570,9 @@ if (!settings || settings.totalItems === 0) {
 	await pb.collection('settings').create({
 		unit_name: 'Rental Unit',
 		description: 'A clean, well-maintained unit ready for move-in.',
-		address: '',
+		// Fictional listing address — property_access entries scope against it,
+		// so the seeded gate/lockbox fixtures must use the same value.
+		address: '2728 B Street, San Diego, CA 92102',
 		monthly_rent_cents: 225000, // $2,250
 		deposit_cents: 50000, // $500
 		min_lease_months: 3,
