@@ -113,6 +113,8 @@ Admin); acceptance is server-side and requires the invited account.
 
 ## Development & testing practices
 
+See [AGENTS.md](./AGENTS.md) for the repository’s development policy.
+
 - **Fictional test data belongs in the isolated local PocketBase** — never in
   production. Production holds real records and must not be replaced with test
   data.

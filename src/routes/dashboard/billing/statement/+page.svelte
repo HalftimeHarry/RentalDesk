@@ -3,6 +3,7 @@
 	import { billStatus, monthLabel } from '$lib/billing';
 	import { Button } from '$lib/components/ui/button';
 	import { formatDate, formatMoney } from '$lib/format';
+	import PrintBrandHeader from '$lib/components/PrintBrandHeader.svelte';
 	import { ArrowLeft, Printer } from '@lucide/svelte';
 
 	let { data }: { data: PageData } = $props();
@@ -47,9 +48,15 @@
 	</div>
 
 	<article class="bg-card text-card-foreground rounded-xl border p-6 shadow-lg print:border-0 print:p-0 print:shadow-none">
+		<PrintBrandHeader
+			title="Monthly statement"
+			subtitle={monthLabel(data.month)}
+			unitName={data.unitName}
+			address={data.businessAddress}
+			ownerName={data.ownerName}
+		/>
 		<header class="mb-6 flex flex-wrap items-start justify-between gap-2 border-b pb-4">
 			<div>
-				<h1 class="text-xl font-bold tracking-tight">RentalDesk — Monthly statement</h1>
 				<p class="text-muted-foreground text-sm">
 					{data.lease.expand?.tenant?.name || 'Tenant'} · lease {formatDate(data.lease.start_date)} –{' '}
 					{formatDate(data.lease.end_date)}
@@ -131,8 +138,13 @@
 			</section>
 		{/if}
 
-		<footer class="text-muted-foreground mt-6 border-t pt-3 text-xs">
-			Generated {formatDate(new Date().toISOString().slice(0, 10))} · RentalDesk
+		<footer class="text-muted-foreground mt-6 flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-xs">
+			<span>
+				{data.unitName || 'RentalDesk'}{data.businessAddress ? ` · ${data.businessAddress}` : ''}{data.ownerName
+					? ` · ${data.ownerName}`
+					: ''}
+			</span>
+			<span>Generated {formatDate(new Date().toISOString().slice(0, 10))} · RentalDesk</span>
 		</footer>
 	</article>
 </div>

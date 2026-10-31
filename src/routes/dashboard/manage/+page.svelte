@@ -11,7 +11,6 @@
 	import ApplicantsCard from '$lib/components/manage/ApplicantsCard.svelte';
 	import LeaseCard from '$lib/components/manage/LeaseCard.svelte';
 	import PendingLeaseCard from '$lib/components/manage/PendingLeaseCard.svelte';
-	import WorkflowGuideCard from '$lib/components/manage/WorkflowGuideCard.svelte';
 	import HelpVideosCard from '$lib/components/manage/HelpVideosCard.svelte';
 	import { page } from '$app/state';
 	import MaintenanceCard from '$lib/components/manage/MaintenanceCard.svelte';
@@ -27,10 +26,12 @@
 	import { buttonVariants } from '$lib/components/ui/button';
 	import {
 		CalendarClock,
+		ChevronDown,
 		ClipboardList,
 		LayoutDashboard,
 		LogOut,
 		MessageSquare,
+		Play,
 		Receipt,
 		Users,
 		Wallet,
@@ -40,6 +41,11 @@
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
 	let isOwner = $derived(data.user.role === 'owner');
+	let managementHelpVideos = $derived(
+		data.helpVideos.filter(
+			(v) => v.placement === 'tenant_dashboard' || v.placement === 'manage_billing'
+		)
+	);
 	let pendingApplications = $derived(
 		data.applications.filter((a) => a.status === 'submitted' || a.status === 'under_review').length
 	);
@@ -92,14 +98,32 @@
 </svelte:head>
 
 <div class="manage-panel bg-card text-card-foreground flex flex-col rounded-xl border shadow-lg">
-        <div>
-				<h1 class="text-navy flex items-center gap-2 text-2xl font-bold tracking-tight">
-					<LayoutDashboard class="text-ocean size-6" />
-                </h1>
-                <p class="text-muted-foreground">
-			{data.settings.unit_name} — management overview.
-		</p>
+	<div class="flex flex-col gap-3 rounded-xl border border-sky-200 bg-sky-50 p-4 sm:flex-row sm:items-end sm:justify-between">
+		<div>
+			<h1 class="text-navy flex items-center gap-2 text-2xl font-bold tracking-tight">
+				<LayoutDashboard class="text-ocean size-6" />
+				<span>Welcome, {data.user.name || data.user.email}</span>
+			</h1>
+		</div>
 	</div>
+
+	{#if managementHelpVideos.length > 0}
+		<div class="mt-4">
+			<HelpVideosCard videos={managementHelpVideos} autoWatchSlug={page.url.searchParams.get('watch') ?? ''} />
+		</div>
+	{/if}
+
+	{#if data.pendingLease}
+		<div class="mt-4">
+			<PendingLeaseCard
+				lease={data.pendingLease}
+				documents={data.pendingLeaseDocuments}
+				application={data.pendingApplication}
+				proposedCharges={data.proposedCharges}
+				{form}
+			/>
+		</div>
+	{/if}
 
 	{#if pendingNotices.length > 0}
 		<p class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
@@ -122,7 +146,7 @@
 				<CardDescription class="flex items-center gap-1.5">
 					<Wallet class="text-turquoise size-4" /> Balance due
 				</CardDescription>
-				<CardTitle class="text-2xl">{formatMoney(data.ledger.totalBalance)}</CardTitle>
+				<CardTitle class="text-ocean text-2xl font-bold">{formatMoney(data.ledger.totalBalance)}</CardTitle>
 			</CardHeader>
 			<CardContent class="flex flex-col gap-3 text-sm">
 				<span class={data.leaseError ? 'text-destructive' : 'text-muted-foreground'}>
@@ -133,8 +157,14 @@
 							: 'No active lease'} · {data.unpaidCharges.length} unpaid
 				</span>
 				<Dialog.Root>
-					<Dialog.Trigger class={buttonVariants({ variant: 'outline', className: 'min-h-12 w-full' })}>
-						Manage bills
+					<Dialog.Trigger
+						class={buttonVariants({
+							variant: 'outline',
+							className:
+								'min-h-12 w-full border-orange-200 bg-orange-100 text-orange-900 shadow-sm hover:bg-orange-200'
+						})}
+					>
+						<Receipt class="size-4" /> Manage bills
 					</Dialog.Trigger>
 					<Dialog.Portal>
 						<Dialog.Overlay />
@@ -179,14 +209,88 @@
 				</Dialog.Root>
 			</CardContent>
 		</Card>
-		<Card class="tile bg-seafoam/50! lg:col-span-2">
-			<CardHeader class="pb-2">
-				<CardTitle class="flex items-center gap-2">
-					<LayoutDashboard class="text-ocean size-5" /> Overview
-				</CardTitle>
-			</CardHeader>
-			<CardContent>
-				<div class="grid sm:grid-cols-3">
+		<!-- Manage Unit sits directly above Overview in the wide column of the summary grid. -->
+		<div class="flex flex-col gap-4 lg:col-span-2">
+		<details class="group block" open={false}>
+			<summary class="list-none cursor-pointer [&::-webkit-details-marker]:hidden">
+				<div class="flex items-center justify-between gap-3 rounded-xl border border-transparent bg-transparent px-0 py-2 text-left">
+					<div class="flex items-center gap-2 text-base font-semibold text-slate-900">
+						<LayoutDashboard class="text-ocean size-5" /> Manage Unit
+					</div>
+					<ChevronDown class="text-muted-foreground size-4 shrink-0 transition-transform group-open:rotate-180" />
+				</div>
+			</summary>
+			<div class="mt-3 flex flex-col gap-6">
+				<LeaseCard
+					section="tenant"
+					lease={data.activeLease}
+					ledger={data.ledger}
+					inspections={data.inspections}
+					leaseDocuments={data.leaseDocuments}
+					{approvedApplications}
+					settings={data.settings}
+					today={data.today}
+					{form}
+					depositBilled={data.charges.some((c) => c.type === 'deposit' && c.status === 'published')}
+					hasPending={!!data.pendingLease}
+				/>
+
+				<div class="grid gap-6 lg:grid-cols-2">
+					<ApplicantsCard
+						applications={data.applications}
+						form={form}
+						lease={data.activeLease ?? data.pendingLease}
+						leaseDocuments={data.activeLease ? data.leaseDocuments : data.pendingLeaseDocuments}
+						charges={data.charges}
+						inspections={data.inspections}
+					/>
+				</div>
+
+				<div class="flex flex-col gap-6">
+					<LeaseCard
+						section="records"
+						lease={data.activeLease}
+						ledger={data.ledger}
+						inspections={data.inspections}
+						leaseDocuments={data.leaseDocuments}
+						{approvedApplications}
+						settings={data.settings}
+						today={data.today}
+						{form}
+						depositBilled={data.charges.some((c) => c.type === 'deposit' && c.status === 'published')}
+						hasPending={!!data.pendingLease}
+					/>
+
+					<SettingsCard settings={data.settings} propertyAccess={data.propertyAccess} {form} />
+
+					<TeamCard
+						users={data.allUsers}
+						invitations={data.invitations}
+						currentUserId={data.user.id}
+						isOwner={data.user.role === 'owner'}
+						{form}
+					/>
+				</div>
+			</div>
+		</details>
+		<details class="group" open={false}>
+			<summary class="list-none [&::-webkit-details-marker]:hidden">
+				<div class="flex cursor-pointer items-center justify-between gap-2 rounded-xl border border-transparent bg-transparent px-0 py-2 text-left">
+					<div class="flex items-center gap-2 text-base font-semibold text-slate-900">
+						<LayoutDashboard class="text-ocean size-5" /> Overview
+					</div>
+					<ChevronDown class="text-muted-foreground size-4 transition-transform group-open:rotate-180" />
+				</div>
+			</summary>
+			<div class="mt-3">
+				<Card class="tile bg-seafoam/50!">
+					<CardHeader class="pb-2">
+						<CardTitle class="flex items-center gap-2">
+							<LayoutDashboard class="text-ocean size-5" /> Overview
+						</CardTitle>
+					</CardHeader>
+					<CardContent>
+						<div class="grid sm:grid-cols-3">
 					<div class="pb-4 sm:pr-5 sm:pb-0">
 						<p class="text-muted-foreground flex items-center gap-1.5 text-sm">
 							<Users class="text-ocean size-4" /> Pending applications
@@ -210,78 +314,91 @@
 						<p class="mt-1 text-2xl leading-none font-semibold">{data.upcoming.length}</p>
 						<p class="text-muted-foreground mt-1 text-sm">Next 60 days</p>
 					</div>
-				</div>
-			</CardContent>
-		</Card>
+					</div>
+					</CardContent>
+				</Card>
+			</div>
+		</details>
+		</div>
 	</div>
 
 	<!-- Inspection report: the primary action follows the saved workflow stage.
 		The stage field stays internal — no selector on this card. -->
-	<Card class="border-ocean/30">
-		<CardHeader>
-			<CardTitle class="flex items-center gap-2">
-				<ClipboardList class="text-ocean size-5" /> Inspection Report
-			</CardTitle>
-			<CardDescription>
-				Property-condition record with the nine-section checklist — move-in, move-out, and
-				vacant-unit inspections.
-			</CardDescription>
-		</CardHeader>
-		<CardContent class="flex flex-col gap-3">
-			{#if unfinishedMoveIns.length > 0}
-				{#if unfinishedMoveIns.length === 1}
-					<p class="text-muted-foreground text-sm">
-						The move-in inspection is saved and awaiting {unfinishedMoveIns[0].sig_landlord || unfinishedMoveIns[0].sig_tenant
-							? 'one more signature'
-							: 'landlord and tenant signatures'}.
-					</p>
-					<div>
-						<Button
-							href="/dashboard/inspections/{unfinishedMoveIns[0].id}"
-							size="lg"
-							class="min-h-12 w-full sm:w-auto"
-						>
-							<ClipboardList class="size-5" /> Continue move-in inspection
-						</Button>
-					</div>
-				{:else}
-					<p class="text-muted-foreground text-sm">
-						Multiple unfinished move-in inspections exist for this lease. Choose the draft to continue.
-					</p>
-					<div class="flex flex-col gap-2">
-						{#each unfinishedMoveIns as inspection (inspection.id)}
+	<details class="group block" open={false}>
+		<summary class="list-none cursor-pointer [&::-webkit-details-marker]:hidden">
+			<div class="flex items-center justify-between gap-3 rounded-xl border border-transparent px-0 py-2 text-left">
+				<div class="flex items-center gap-2 text-base font-semibold text-slate-900">
+					<ClipboardList class="text-ocean size-5" /> Inspection Report
+				</div>
+				<ChevronDown class="text-muted-foreground size-4 shrink-0 transition-transform group-open:rotate-180" />
+			</div>
+		</summary>
+		<div class="mt-3">
+			<Card class="border-ocean/30">
+				<CardHeader>
+					<CardTitle class="flex items-center gap-2">
+						<ClipboardList class="text-ocean size-5" /> Inspection Report
+					</CardTitle>
+					<CardDescription>
+						Property-condition record with the nine-section checklist — move-in, move-out, and
+						vacant-unit inspections.
+					</CardDescription>
+				</CardHeader>
+				<CardContent class="flex flex-col gap-3">
+					{#if unfinishedMoveIns.length > 0}
+						{#if unfinishedMoveIns.length === 1}
+							<p class="text-muted-foreground text-sm">
+								The move-in inspection is saved and awaiting {unfinishedMoveIns[0].sig_landlord || unfinishedMoveIns[0].sig_tenant
+									? 'one more signature'
+									: 'landlord and tenant signatures'}.
+							</p>
+							<div>
+								<Button
+									href="/dashboard/inspections/{unfinishedMoveIns[0].id}"
+									size="lg"
+									class="min-h-12 w-full sm:w-auto"
+								>
+									<ClipboardList class="size-5" /> Continue move-in inspection
+								</Button>
+							</div>
+						{:else}
+							<p class="text-muted-foreground text-sm">
+								Multiple unfinished move-in inspections exist for this lease. Choose the draft to continue.
+							</p>
+							<div class="flex flex-col gap-2">
+								{#each unfinishedMoveIns as inspection (inspection.id)}
+									<Button
+										href="/dashboard/inspections/{inspection.id}"
+										variant="outline"
+										class="min-h-12 w-full justify-start text-left sm:w-auto"
+									>
+										<ClipboardList class="size-5" />
+										Continue move-in inspection — {inspection.tenant_names || 'Tenant'} · Unit {inspection.unit || '—'} · {formatDate(
+											inspection.date
+										)}
+									</Button>
+								{/each}
+							</div>
+						{/if}
+					{:else if signedMoveIns.length > 0 && !unfinishedMoveIns.length}
+						<p class="text-muted-foreground text-sm">
+							The move-in inspection is fully signed and preserved. Starting move-out creates a
+							separate draft with blank signatures and the move-in conditions attached for
+							comparison.
+						</p>
+						<form method="POST" action="/dashboard/inspections?/createInspection">
+							<input type="hidden" name="lease" value={data.activeLease?.id ?? ''} />
+							<input type="hidden" name="type" value="move_out" />
 							<Button
-								href="/dashboard/inspections/{inspection.id}"
-								variant="outline"
-								class="min-h-12 w-full justify-start text-left sm:w-auto"
+								type="submit"
+								size="lg"
+								class="min-h-12 w-full border-transparent bg-emerald-600 text-white hover:bg-emerald-700 sm:w-auto"
 							>
-								<ClipboardList class="size-5" />
-								Continue move-in inspection — {inspection.tenant_names || 'Tenant'} · Unit {inspection.unit || '—'} · {formatDate(
-									inspection.date
-								)}
+								<ClipboardList class="size-5" /> Start move-out inspection
 							</Button>
-						{/each}
-					</div>
-				{/if}
-			{:else if signedMoveIns.length > 0 && !unfinishedMoveIns.length}
-				<p class="text-muted-foreground text-sm">
-					The move-in inspection is fully signed and preserved. Starting move-out creates a
-					separate draft with blank signatures and the move-in conditions attached for
-					comparison.
-				</p>
-				<form method="POST" action="/dashboard/inspections?/createInspection">
-					<input type="hidden" name="lease" value={data.activeLease?.id ?? ''} />
-					<input type="hidden" name="type" value="move_out" />
-					<Button
-						type="submit"
-						size="lg"
-						class="min-h-12 w-full border-transparent bg-emerald-600 text-white hover:bg-emerald-700 sm:w-auto"
-					>
-						<ClipboardList class="size-5" /> Start move-out inspection
-					</Button>
-				</form>
-			{:else if unfinishedMoveOuts.length > 0}
-				{#if unfinishedMoveOuts.length === 1}
+						</form>
+					{:else if unfinishedMoveOuts.length > 0}
+						{#if unfinishedMoveOuts.length === 1}
 					<p class="text-muted-foreground text-sm">
 						The move-out inspection is saved and awaiting {unfinishedMoveOuts[0].sig_landlord || unfinishedMoveOuts[0].sig_tenant
 							? 'one more signature'
@@ -369,6 +486,43 @@
 			</div>
 		</CardContent>
 	</Card>
+	</div>
+	</details>
+
+	<details class="group block" open={false}>
+			<summary class="list-none cursor-pointer [&::-webkit-details-marker]:hidden">
+				<div class="flex items-center justify-between gap-3 rounded-xl border border-transparent px-0 py-2 text-left">
+					<div class="flex items-center gap-2 text-base font-semibold text-slate-900">
+						<MessageSquare class="text-turquoise size-5" /> Messages
+					</div>
+					<ChevronDown class="text-muted-foreground size-4 shrink-0 transition-transform group-open:rotate-180" />
+				</div>
+			</summary>
+			<Card>
+				<CardHeader>
+					<CardTitle class="flex items-center gap-2">
+						<MessageSquare class="text-turquoise size-5" /> Messages
+					</CardTitle>
+					<CardDescription>Conversations with applicants and tenants.</CardDescription>
+				</CardHeader>
+				<CardContent>
+					{#if form?.section === 'messages'}
+						<p class="bg-muted mb-3 rounded-md px-3 py-2 text-sm">{form.message}</p>
+					{/if}
+					<MessageThread
+						messages={data.messages.slice().reverse()}
+						currentUserId={data.user.id}
+						recipients={messageRecipients}
+					/>
+				</CardContent>
+			</Card>
+		</details>
+	</div>
+
+	<div class="grid gap-6 lg:grid-cols-2">
+		<UpcomingCard upcoming={data.upcoming} />
+		<MaintenanceCard maintenance={data.maintenance} {form} />
+	</div>
 
 	<!-- Move-out notice: tenant-submitted intent to end the tenancy. The requested
 		date is never treated as approved; lease, rent, and deductions are unchanged. -->
@@ -487,73 +641,3 @@
 		</CardContent>
 	</Card>
 
-	<div class="grid gap-6 lg:grid-cols-2">
-		<ApplicantsCard applications={data.applications} {form} />
-		<WorkflowGuideCard
-			applications={data.applications}
-			lease={data.activeLease ?? data.pendingLease}
-			leaseDocuments={data.activeLease ? data.leaseDocuments : data.pendingLeaseDocuments}
-			charges={data.charges}
-			inspections={data.inspections}
-		/>
-		<div class="flex flex-col gap-6">
-			<UpcomingCard upcoming={data.upcoming} />
-			<MaintenanceCard maintenance={data.maintenance} {form} />
-			<HelpVideosCard videos={data.helpVideos} autoWatchSlug={page.url.searchParams.get('watch') ?? ''} />
-		</div>
-	</div>
-
-	{#if data.pendingLease}
-		<PendingLeaseCard
-			lease={data.pendingLease}
-			documents={data.pendingLeaseDocuments}
-			application={data.pendingApplication}
-			proposedCharges={data.proposedCharges}
-			{form}
-		/>
-	{/if}
-
-	<LeaseCard
-		lease={data.activeLease}
-		ledger={data.ledger}
-		inspections={data.inspections}
-		leaseDocuments={data.leaseDocuments}
-		{approvedApplications}
-		settings={data.settings}
-		today={data.today}
-		{form}
-		depositBilled={data.charges.some((c) => c.type === 'deposit' && c.status === 'published')}
-		hasPending={!!data.pendingLease}
-	/>
-
-	<SettingsCard settings={data.settings} propertyAccess={data.propertyAccess} {form} />
-
-	<!-- Team & roles for all staff: invitations are Owner+Admin; role dropdowns
-	     stay Owner-only inside the card (and server/PocketBase-enforced). -->
-	<TeamCard
-		users={data.allUsers}
-		invitations={data.invitations}
-		currentUserId={data.user.id}
-		isOwner={data.user.role === 'owner'}
-		{form}
-	/>
-
-	<Card>
-		<CardHeader>
-			<CardTitle class="flex items-center gap-2">
-				<MessageSquare class="text-turquoise size-5" /> Messages
-			</CardTitle>
-			<CardDescription>Conversations with applicants and tenants.</CardDescription>
-		</CardHeader>
-		<CardContent>
-			{#if form?.section === 'messages'}
-				<p class="bg-muted mb-3 rounded-md px-3 py-2 text-sm">{form.message}</p>
-			{/if}
-			<MessageThread
-				messages={data.messages.slice().reverse()}
-				currentUserId={data.user.id}
-				recipients={messageRecipients}
-			/>
-		</CardContent>
-	</Card>
-</div>

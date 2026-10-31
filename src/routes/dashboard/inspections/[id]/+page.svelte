@@ -201,6 +201,14 @@
 		move_out: 'Move-out',
 		periodic: 'Periodic'
 	};
+
+	// Secondary sections start collapsed to keep the edit form short; follow-ups
+	// open by default only when they already contain content to review.
+	// svelte-ignore state_referenced_locally
+	const followupsInitiallyOpen =
+		data.checklist.some((c) => c.flagged) ||
+		data.deductions.length > 0 ||
+		Object.values(data.documents).some((d) => d.kind === 'receipt');
 </script>
 
 <svelte:head>
@@ -271,16 +279,22 @@
 				<fieldset disabled={finalized || hasAnySignature} class="contents">
 					<input type="hidden" name="checklist" value={JSON.stringify(checklist)} />
 
-					<!-- Inspection details -->
-					<section class="flex flex-col gap-4">
-						<div>
-							<h2 class="text-navy text-lg font-semibold">Inspection details</h2>
-							<p class="text-muted-foreground text-sm">
-								Created by {data.inspection.expand?.created_by?.name || 'management'} · {typeLabels[
-									data.inspection.type
-								] ?? data.inspection.type}
-							</p>
-						</div>
+					<!-- Inspection details: prefilled from the lease, collapsed by default to keep the form short -->
+					<details class="group">
+						<summary class="list-none cursor-pointer [&::-webkit-details-marker]:hidden">
+							<div class="flex items-center justify-between gap-3">
+								<div>
+									<h2 class="text-navy text-lg font-semibold">Inspection details</h2>
+									<p class="text-muted-foreground text-sm">
+										{data.inspection.address || 'No address'} · Unit {data.inspection.unit || '—'} ·
+										{typeLabels[data.inspection.type] ?? data.inspection.type} ·
+										{formatDate(data.inspection.date)} — tap to edit
+									</p>
+								</div>
+								<ChevronDown class="text-navy size-5 shrink-0 transition-transform group-open:rotate-180" />
+							</div>
+						</summary>
+						<div class="mt-3 flex flex-col gap-4">
 						<div class="grid gap-4 sm:grid-cols-2">
 					<div class="flex flex-col gap-2 sm:col-span-2">
 						<Label for="address">Property address</Label>
@@ -345,7 +359,8 @@
 					value={data.privateNote}
 				/>
 			</div>
-			</section>
+			</div>
+			</details>
 				<section class="border-navy/10 flex flex-col gap-4 border-t pt-5">
 						<div>
 							<h2 class="text-navy text-lg font-semibold">Checklist</h2>
@@ -560,18 +575,24 @@
 							</section>
 						{/if}
 
-						<!-- Follow-ups & deposit documentation -->
-						<section class="border-navy/10 flex flex-col gap-4 border-t pt-5">
-							<div>
-								<h2 class="text-navy flex items-center gap-2 text-lg font-semibold">
-									<Flag class="text-coral size-5" /> Follow-ups &amp; deposit documentation
-								</h2>
-								<p class="text-muted-foreground text-sm">
-									Flagged items, repair receipts/estimates, and proposed deductions. Proposed
-									deductions are kept separate from recorded damage and are never applied to
-									charges automatically.
-								</p>
-							</div>
+						<!-- Follow-ups & deposit documentation: collapsed unless it already has content -->
+						<details class="group border-navy/10 border-t pt-5" open={followupsInitiallyOpen}>
+							<summary class="list-none cursor-pointer [&::-webkit-details-marker]:hidden">
+								<div class="flex items-center justify-between gap-3">
+									<div>
+										<h2 class="text-navy flex items-center gap-2 text-lg font-semibold">
+											<Flag class="text-coral size-5" /> Follow-ups &amp; deposit documentation
+										</h2>
+										<p class="text-muted-foreground text-sm">
+											Flagged items, repair receipts/estimates, and proposed deductions. Proposed
+											deductions are kept separate from recorded damage and are never applied to
+											charges automatically.
+										</p>
+									</div>
+									<ChevronDown class="text-navy size-5 shrink-0 transition-transform group-open:rotate-180" />
+								</div>
+							</summary>
+							<div class="mt-3 flex flex-col gap-4">
 					<input type="hidden" name="proposed_deductions" value={JSON.stringify(deductions)} />
 
 					<div class="flex flex-col gap-1">
@@ -674,7 +695,8 @@
 						/>
 						<p class="text-muted-foreground text-xs">Receipts upload when you save.</p>
 					</div>
-						</section>
+							</div>
+						</details>
 				</fieldset>
 				<!-- Signatures: inside the form but outside the (possibly disabled) content fieldset -->
 				{#if !finalized}
@@ -765,13 +787,19 @@
 								<Input
 									id="{who}_name"
 									name="{who}_name"
-									value={who === 'tenant' ? data.inspection.tenant_names : (data.inspection.expand?.created_by?.name ?? '')}
+									value={who === 'tenant'
+										? data.inspection.tenant_names
+										: data.inspection.expand?.created_by?.name ||
+											data.user?.name ||
+											data.user?.email ||
+											''}
 								/>
 							</div>
 							<label class="flex items-start gap-2 text-sm">
 								<input
 										type="checkbox"
 										name="{who}_ack"
+										checked
 										class="mt-1 size-4 accent-[#075985]"
 									/>
 								<span>
@@ -842,17 +870,22 @@
 				{/if}
 			</form>
 
-			<!-- Signed copy -->
-			<section class="border-navy/10 flex flex-col gap-4 border-t pt-5">
-				<div>
-					<h2 class="text-navy flex items-center gap-2 text-lg font-semibold">
-						<Upload class="text-ocean size-5" /> Signed copy
-					</h2>
-					<p class="text-muted-foreground text-sm">
-						Upload the signed paper inspection (PDF, JPEG, or PNG). Stored privately.
-					</p>
-				</div>
-				<div class="flex flex-col gap-3">
+			<!-- Signed copy: collapsed unless one is already uploaded -->
+			<details class="group border-navy/10 border-t pt-5" open={!!data.inspection.signed_copy}>
+				<summary class="list-none cursor-pointer [&::-webkit-details-marker]:hidden">
+					<div class="flex items-center justify-between gap-3">
+						<div>
+							<h2 class="text-navy flex items-center gap-2 text-lg font-semibold">
+								<Upload class="text-ocean size-5" /> Signed copy
+							</h2>
+							<p class="text-muted-foreground text-sm">
+								Upload the signed paper inspection (PDF, JPEG, or PNG). Stored privately.
+							</p>
+						</div>
+						<ChevronDown class="text-navy size-5 shrink-0 transition-transform group-open:rotate-180" />
+					</div>
+				</summary>
+				<div class="mt-3 flex flex-col gap-3">
 			{#if data.inspection.signed_copy}
 				<a
 					class="text-ocean text-sm underline-offset-4 hover:underline"
@@ -887,20 +920,26 @@
 				</form>
 			{/if}
 				</div>
-			</section>
+			</details>
 
-			<!-- Email confirmation delivery -->
-			<section class="border-navy/10 flex flex-col gap-4 border-t pt-5">
-				<div>
-					<h2 class="text-navy flex items-center gap-2 text-lg font-semibold">
-						<Mail class="text-ocean size-5" /> Email confirmation
-					</h2>
-					<p class="text-muted-foreground text-sm">
-						After the report is fully signed, a branded confirmation goes to the landlord and the
-						tenant account linked through the lease. File tokens and private manager notes are
-						never emailed.
-					</p>
-				</div>
+			<!-- Email confirmation: collapsed unless there is delivery activity to review -->
+			<details class="group border-navy/10 border-t pt-5" open={data.notifications.length > 0 || form?.section === 'notify'}>
+				<summary class="list-none cursor-pointer [&::-webkit-details-marker]:hidden">
+					<div class="flex items-center justify-between gap-3">
+						<div>
+							<h2 class="text-navy flex items-center gap-2 text-lg font-semibold">
+								<Mail class="text-ocean size-5" /> Email confirmation
+							</h2>
+							<p class="text-muted-foreground text-sm">
+								After the report is fully signed, a branded confirmation goes to the landlord and the
+								tenant account linked through the lease. File tokens and private manager notes are
+								never emailed.
+							</p>
+						</div>
+						<ChevronDown class="text-navy size-5 shrink-0 transition-transform group-open:rotate-180" />
+					</div>
+				</summary>
+				<div class="mt-3 flex flex-col gap-4">
 				{#if form?.section === 'notify'}
 					<p class="bg-turquoise/15 text-navy rounded-md px-3 py-2 text-sm">{form.message}</p>
 				{/if}
@@ -935,7 +974,8 @@
 						</form>
 					{/if}
 				{/if}
-			</section>
+				</div>
+			</details>
 		</div>
 	</Card>
 </div>

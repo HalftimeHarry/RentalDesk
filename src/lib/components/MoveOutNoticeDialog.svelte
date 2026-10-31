@@ -7,6 +7,7 @@
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { daysBetween } from '$lib/files';
 	import { formatDate } from '$lib/format';
+	import { earliestMoveOutDate, MIN_NOTICE_DAYS, pacificToday } from '$lib/move-out-notice';
 	import type { MoveOutNotice } from '$lib/types';
 	import { LogOut, ShieldCheck } from '@lucide/svelte';
 
@@ -33,7 +34,9 @@
 		correctFrom?: MoveOutNotice | null;
 	} = $props();
 
-	const today = new Date().toISOString().slice(0, 10);
+	// Pacific time, matching the server's authoritative validation.
+	const today = pacificToday();
+	const minDate = earliestMoveOutDate();
 
 	let requestedDate = $state('');
 	let forwarding = $state('');
@@ -131,15 +134,21 @@
 						id="mo-date"
 						name="requested_date"
 						type="date"
-						min={today}
+						min={minDate}
 						required
 						bind:value={requestedDate}
 					/>
+					<p class="text-muted-foreground text-xs">
+						At least {MIN_NOTICE_DAYS} days' notice is required (Pacific time). Earliest selectable
+						date: <span class="font-medium">{formatDate(minDate)}</span>.
+					</p>
 					{#if requestedDate}
-						<p class="text-muted-foreground text-xs">
-							That's {days} day{days === 1 ? '' : 's'} from today{days >= 30
-								? " — at least 30 days' notice."
-								: ' — fewer than 30 days; your lease or local rules may require more notice.'}
+						<p class={requestedDate < minDate ? 'text-destructive text-xs' : 'text-muted-foreground text-xs'}>
+							{#if requestedDate < minDate}
+								That's only {days} day{days === 1 ? '' : 's'} from today — choose {formatDate(minDate)} or later.
+							{:else}
+								That's {days} days' notice.
+							{/if}
 						</p>
 					{/if}
 				</div>
@@ -163,9 +172,11 @@
 				</div>
 
 				<p class="text-muted-foreground text-xs">
-					Submitting in the app informs the management team; it may not by itself satisfy
-					California or San Diego legal notice or delivery requirements. The date you choose
-					does not override the fixed lease term or other notice requirements.
+					<strong>Submitting this form is a request</strong> — it informs the management team of
+					your intent. It does not approve early termination and does not change your lease
+					automatically. Submitting in the app may not by itself satisfy California or San Diego
+					legal notice or delivery requirements, and the date you choose does not override the
+					fixed lease term or other notice requirements.
 				</p>
 
 				<div class="flex flex-col gap-2">
@@ -193,7 +204,7 @@
 					<Button
 						type="submit"
 						class="min-h-12 w-full sm:w-auto"
-						disabled={submitting || !confirmed || !requestedDate || !signer.trim()}
+						disabled={submitting || !confirmed || !requestedDate || requestedDate < minDate || !signer.trim()}
 					>
 						<ShieldCheck class="size-4" />
 						{submitting ? 'Submitting…' : correctFrom ? 'Submit correction' : 'Submit notice'}

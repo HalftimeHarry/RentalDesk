@@ -26,7 +26,7 @@
 	import { docUrl, isImageFile } from '$lib/files';
 	import { formatDate, formatMoney } from '$lib/format';
 	import { cn } from '$lib/utils';
-	import { FileText, ClipboardCheck, Eye, HandCoins, House } from '@lucide/svelte';
+	import { FileText, ClipboardCheck, Eye, HandCoins, House, ChevronDown, Plus } from '@lucide/svelte';
 
 	let {
 		lease,
@@ -38,7 +38,8 @@
 		today,
 		form,
 		depositBilled = true,
-		hasPending = false
+		hasPending = false,
+		section = 'all'
 	}: {
 		lease: Lease | null;
 		ledger: Ledger;
@@ -52,6 +53,10 @@
 		depositBilled?: boolean;
 		/** True when a pending lease awaits activation — hide the create form. */
 		hasPending?: boolean;
+		/** Which blocks render, so the page can place them in separate dashboard sections:
+		    'tenant' = Current tenant card (or Create lease), 'records' = Inspections +
+		    Lease documents grid, 'all' = everything. */
+		section?: 'all' | 'tenant' | 'records';
 	} = $props();
 
 	let leaseOpen = $state(false);
@@ -67,6 +72,7 @@
 </script>
 
 {#if !lease}
+	{#if section !== 'records'}
 	<Card>
 		<CardHeader>
 			<CardTitle class="flex items-center gap-2">
@@ -147,14 +153,24 @@
 			{/if}
 		</CardContent>
 	</Card>
+	{/if}
 {:else}
+	{#if section !== 'records'}
 	<Card>
-		<CardHeader>
-			<div class="flex flex-wrap items-center justify-between gap-2">
-				<CardTitle class="flex items-center gap-2">
-					<House class="text-ocean size-5" />
-					Current tenant: {lease.expand?.tenant?.name || lease.expand?.tenant?.email || 'Tenant'}
-				</CardTitle>
+		<details class="group block" open={false}>
+			<summary class="list-none cursor-pointer [&::-webkit-details-marker]:hidden">
+				<div class="flex items-center justify-between gap-3 px-4 pt-4 text-left">
+					<div class="flex items-center gap-2 font-semibold text-slate-900">
+						<House class="text-ocean size-5" /> Current tenant
+					</div>
+					<ChevronDown class="text-muted-foreground size-4 shrink-0 transition-transform group-open:rotate-180" />
+				</div>
+			</summary>
+			<div class="flex flex-wrap items-center justify-between gap-2 px-4 pt-4">
+				<div class="flex items-center gap-2 text-sm text-slate-600">
+					<span class="font-medium text-slate-900">Current tenant:</span>
+					<span>{lease.expand?.tenant?.name || lease.expand?.tenant?.email || 'Tenant'}</span>
+				</div>
 				<div class="flex items-center gap-2">
 					<StatusBadge status={lease.status} />
 					<Button variant="outline" size="sm" class="min-h-12" onclick={() => (leaseOpen = true)}>
@@ -162,250 +178,294 @@
 					</Button>
 				</div>
 			</div>
-			<CardDescription>
+			<div class="px-4 pb-4 text-sm text-slate-600">
 				{formatDate(lease.start_date)} – {formatDate(lease.end_date)} · {formatMoney(
 					lease.monthly_rent_cents
 				)}/month · deposit {formatMoney(lease.deposit_cents)}
-			</CardDescription>
-		</CardHeader>
-		<CardContent class="flex flex-col gap-6">
-			<div class="grid gap-4 sm:grid-cols-3">
-				<div class="rounded-lg border border-sky-200 bg-sky-100! p-3">
-					<p class="text-navy/70 text-sm">Rent balance</p>
-					<p class="text-navy text-xl font-semibold">{formatMoney(ledger.rentBalance)}</p>
-					<p class="text-navy/60 text-xs">
-						Charged {formatMoney(ledger.rentCharged)} · Paid {formatMoney(ledger.rentPaid)}
-					</p>
-				</div>
-				<div
-					class={cn(
-						'rounded-lg border p-3',
-						depositState === 'none'
-							? 'border-red-200 bg-red-100!'
-							: depositState === 'partial'
-								? 'border-amber-200 bg-amber-100!'
-								: 'border-emerald-200 bg-emerald-100!'
-					)}
-				>
-					<p class="text-navy/70 text-sm">Deposit held</p>
-					<p class="text-navy text-xl font-semibold">{formatMoney(ledger.depositPaid)}</p>
-					<p class="text-navy/60 text-xs">
-						of {formatMoney(lease.deposit_cents)} required
-					</p>
-					{#if !depositBilled && lease.deposit_cents > 0}
-						<p class="mt-1 rounded bg-amber-100 px-2 py-1 text-xs font-medium text-amber-900">
-							Deposit not yet billed
+			</div>
+			<CardContent class="flex flex-col gap-6">
+				<div class="grid gap-4 sm:grid-cols-3">
+					<div class="rounded-lg border border-sky-200 bg-sky-100! p-3">
+						<p class="text-navy/70 text-sm">Rent balance</p>
+						<p class="text-navy text-xl font-semibold">{formatMoney(ledger.rentBalance)}</p>
+						<p class="text-navy/60 text-xs">
+							Charged {formatMoney(ledger.rentCharged)} · Paid {formatMoney(ledger.rentPaid)}
 						</p>
-					{/if}
+					</div>
+					<div
+						class={cn(
+							'rounded-lg border p-3',
+							depositState === 'none'
+								? 'border-red-200 bg-red-100!'
+								: depositState === 'partial'
+									? 'border-amber-200 bg-amber-100!'
+									: 'border-emerald-200 bg-emerald-100!'
+						)}
+					>
+						<p class="text-navy/70 text-sm">Deposit held</p>
+						<p class="text-navy text-xl font-semibold">{formatMoney(ledger.depositPaid)}</p>
+						<p class="text-navy/60 text-xs">
+							of {formatMoney(lease.deposit_cents)} required
+						</p>
+						{#if !depositBilled && lease.deposit_cents > 0}
+							<p class="mt-1 rounded bg-amber-100 px-2 py-1 text-xs font-medium text-amber-900">
+								Deposit not yet billed
+							</p>
+						{/if}
+					</div>
+					<div class="rounded-lg border border-turquoise/30 bg-turquoise/15! p-3">
+						<p class="text-navy/70 text-sm">Total due</p>
+						<p class="text-navy text-xl font-bold">{formatMoney(ledger.totalBalance)}</p>
+					</div>
 				</div>
-				<div class="rounded-lg border border-turquoise/30 bg-turquoise/15! p-3">
-					<p class="text-navy/70 text-sm">Total due</p>
-					<p class="text-navy text-xl font-bold">{formatMoney(ledger.totalBalance)}</p>
-				</div>
-			</div>
 
-			<div class="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-4">
-				<p class="text-muted-foreground text-sm">
-					Payments are recorded against specific charges from the billing workspace.
-				</p>
-				<Button href="/dashboard/manage/billing" variant="outline" size="sm" class="min-h-12">
-					<HandCoins class="size-4" /> Record payment
-				</Button>
-			</div>
+				<div class="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-4">
+					<p class="text-muted-foreground text-sm">
+						Payments are recorded against specific charges from the billing workspace.
+					</p>
+					<Button
+						href="/dashboard/manage/billing"
+						variant="outline"
+						size="sm"
+						class="min-h-12 border-orange-200 bg-orange-100 text-orange-900 shadow-sm hover:bg-orange-200"
+					>
+						<HandCoins class="size-4" /> Record payment
+					</Button>
+				</div>
 
-			{#if form?.section === 'charges'}
-				<p class="bg-muted rounded-md px-3 py-2 text-sm">{form.message}</p>
-			{/if}
-			<form
-				method="POST"
-				action="?/addCharge"
-				use:enhance
-				class="grid items-end gap-3 rounded-lg border p-4 sm:grid-cols-5"
-			>
-				<input type="hidden" name="lease" value={lease.id} />
-				<div class="flex flex-col gap-2">
-					<Label for="c-type">Type</Label>
-					<Select.Root type="single" name="type" value="late_fee">
-						<Select.Trigger id="c-type" class="w-full"><Select.Value /></Select.Trigger>
-						<Select.Content>
-							<Select.Item value="late_fee">Late fee</Select.Item>
-							<Select.Item value="other">Other</Select.Item>
-							<Select.Item value="rent">Rent (manual)</Select.Item>
-							<Select.Item value="deposit">Deposit (manual)</Select.Item>
-						</Select.Content>
-					</Select.Root>
-				</div>
-				<div class="flex flex-col gap-2 sm:col-span-2">
-					<Label for="c-desc">Description</Label>
-					<Input id="c-desc" name="description" required />
-				</div>
-				<div class="flex flex-col gap-2">
-					<Label for="c-amount">Amount (USD)</Label>
-					<Input id="c-amount" name="amount" inputmode="decimal" required />
-				</div>
-				<div class="flex flex-col gap-2">
-					<Label for="c-due">Due date</Label>
-					<Input id="c-due" name="due_date" type="date" value={today} required />
-				</div>
-				<Button type="submit" size="sm" variant="outline" class="sm:col-span-5 sm:w-fit">
-					Add charge
-				</Button>
-			</form>
-		</CardContent>
+				{#if form?.section === 'charges'}
+					<p class="bg-muted rounded-md px-3 py-2 text-sm">{form.message}</p>
+				{/if}
+				<details class="group block" open={false}>
+					<summary class="list-none cursor-pointer [&::-webkit-details-marker]:hidden">
+						<div class="flex items-center justify-between gap-3 rounded-xl border border-green-200 bg-green-600 px-3 py-2 text-sm font-semibold text-white shadow-sm">
+							<div class="flex items-center gap-2">
+								<Plus class="size-4" /> Create Payment
+							</div>
+							<ChevronDown class="size-4 shrink-0 transition-transform group-open:rotate-180" />
+						</div>
+					</summary>
+					<div class="mt-3">
+						<form
+							method="POST"
+							action="?/addCharge"
+							use:enhance
+							class="grid items-end gap-3 rounded-lg border p-4 sm:grid-cols-5"
+						>
+							<input type="hidden" name="lease" value={lease.id} />
+							<div class="flex flex-col gap-2">
+								<Label for="c-type">Type</Label>
+								<Select.Root type="single" name="type" value="late_fee">
+									<Select.Trigger id="c-type" class="w-full"><Select.Value /></Select.Trigger>
+									<Select.Content>
+										<Select.Item value="late_fee">Late fee</Select.Item>
+										<Select.Item value="other">Other</Select.Item>
+										<Select.Item value="rent">Rent (manual)</Select.Item>
+										<Select.Item value="deposit">Deposit (manual)</Select.Item>
+									</Select.Content>
+								</Select.Root>
+							</div>
+							<div class="flex flex-col gap-2 sm:col-span-2">
+								<Label for="c-desc">Description</Label>
+								<Input id="c-desc" name="description" required />
+							</div>
+							<div class="flex flex-col gap-2">
+								<Label for="c-amount">Amount (USD)</Label>
+								<Input id="c-amount" name="amount" inputmode="decimal" required />
+							</div>
+							<div class="flex flex-col gap-2">
+								<Label for="c-due">Due date</Label>
+								<Input id="c-due" name="due_date" type="date" value={today} required />
+							</div>
+							<Button type="submit" size="sm" variant="outline" class="sm:col-span-5 sm:w-fit">
+								Add charge
+							</Button>
+						</form>
+					</div>
+				</details>
+			</CardContent>
+		</details>
 	</Card>
 
 	<LeaseDetailsDialog bind:open={leaseOpen} {lease} documents={leaseDocuments} canManage />
+	{/if}
 
+	{#if section !== 'tenant'}
 	<div class="grid gap-6 lg:grid-cols-2">
-		<!-- Inspections -->
-		<Card>
-			<CardHeader>
-			<div class="flex flex-wrap items-center justify-between gap-2">
-					<CardTitle class="flex items-center gap-2">
+		<details class="group block" open={false}>
+			<summary class="list-none cursor-pointer [&::-webkit-details-marker]:hidden">
+				<div class="flex items-center justify-between gap-3 rounded-xl border border-transparent px-0 py-2 text-left">
+					<div class="flex items-center gap-2 text-base font-semibold text-slate-900">
 						<ClipboardCheck class="text-ocean size-5" /> Inspections
-					</CardTitle>
-				<Button href="/dashboard/inspections" variant="outline" size="sm">
-					Inspection history
-				</Button>
-			</div>
-			<CardDescription>
-				Schedule move-in, move-out, or periodic inspections — open one to fill the full
-				nine-section form.
-			</CardDescription>
-			</CardHeader>
-			<CardContent class="flex flex-col gap-4">
-				{#if form?.section === 'inspections'}
-					<p class="bg-muted rounded-md px-3 py-2 text-sm">{form.message}</p>
-				{/if}
-				<form
-					method="POST"
-					action="?/scheduleInspection"
-					use:enhance
-					class="grid items-end gap-3 sm:grid-cols-3"
-				>
-					<input type="hidden" name="lease" value={lease.id} />
-					<div class="flex flex-col gap-2">
-						<Label for="i-date">Date</Label>
-						<Input id="i-date" name="date" type="date" required />
 					</div>
-					<div class="flex flex-col gap-2">
-						<Label for="i-type">Type</Label>
-						<Select.Root type="single" name="type" value="move_in">
-							<Select.Trigger id="i-type" class="w-full"><Select.Value /></Select.Trigger>
-							<Select.Content>
-								<Select.Item value="move_in">Move-in</Select.Item>
-								<Select.Item value="periodic">Periodic</Select.Item>
-								<Select.Item value="move_out">Move-out</Select.Item>
-							</Select.Content>
-						</Select.Root>
+					<ChevronDown class="text-muted-foreground size-4 shrink-0 transition-transform group-open:rotate-180" />
+				</div>
+			</summary>
+			<Card>
+				<div class="flex flex-wrap items-center justify-between gap-2 px-4 pt-4">
+					<div class="text-sm text-slate-600">
+						Schedule move-in, move-out, or periodic inspections — open one to fill the full
+						nine-section form.
 					</div>
-					<div class="flex flex-col gap-2">
-						<Label for="i-notes">Notes</Label>
-						<Input id="i-notes" name="notes" placeholder="Optional" />
-					</div>
-					<Button type="submit" size="sm" variant="outline" class="sm:col-span-3 sm:w-fit">
-						Schedule
+					<Button
+						href="/dashboard/inspections"
+						variant="outline"
+						size="sm"
+						class="border-orange-200 bg-orange-100 text-orange-900 shadow-sm hover:bg-orange-200"
+					>
+						Inspection history
 					</Button>
-				</form>
-				{#if inspections.length > 0}
-					<ul class="divide-y rounded-md border text-sm">
-						{#each inspections as i (i.id)}
-							<li class="flex items-center justify-between gap-2 p-3">
-								<a
-									href="/dashboard/inspections/{i.id}"
-									class="font-medium capitalize underline-offset-4 hover:underline"
-								>
-									{i.type.replace('_', '-')}
-								</a>
-								<span class="text-muted-foreground">{formatDate(i.date)}</span>
-							</li>
-							{#if i.notes}
-								<li class="text-muted-foreground px-3 pb-3 text-sm">{i.notes}</li>
-							{/if}
-						{/each}
-					</ul>
-				{/if}
-			</CardContent>
-		</Card>
-
-		<!-- Lease documents -->
-		<Card>
-			<CardHeader>
-					<CardTitle class="flex items-center gap-2">
-						<FileText class="text-gold size-5" /> Lease documents
-					</CardTitle>
-				<CardDescription>Signed lease, addenda, and inspection reports.</CardDescription>
-			</CardHeader>
-			<CardContent class="flex flex-col gap-4">
-				{#if form?.section === 'documents'}
-					<p class="bg-muted rounded-md px-3 py-2 text-sm">{form.message}</p>
-				{/if}
-				<form
-					method="POST"
-					action="?/uploadLeaseDocument"
-					enctype="multipart/form-data"
-					use:enhance
-					class="grid items-end gap-3 sm:grid-cols-3"
-				>
-					<input type="hidden" name="lease" value={lease.id} />
-					<div class="flex flex-col gap-2">
-						<Label for="d-title">Title</Label>
-						<Input id="d-title" name="title" required placeholder="e.g. Signed lease" />
-					</div>
-					<div class="flex flex-col gap-2">
-						<Label for="d-kind">Type</Label>
-						<Select.Root type="single" name="kind" value="lease">
-							<Select.Trigger id="d-kind" class="w-full"><Select.Value /></Select.Trigger>
-							<Select.Content>
-								<Select.Item value="lease">Lease</Select.Item>
-								<Select.Item value="inspection">Inspection</Select.Item>
-								<Select.Item value="other">Other</Select.Item>
-							</Select.Content>
-						</Select.Root>
-					</div>
-					<div class="flex flex-col gap-2">
-						<Label for="d-files">Files (PDF, JPEG, or PNG)</Label>
-						<Input
-							id="d-files"
-							name="files"
-							type="file"
-							accept="application/pdf,image/jpeg,image/png"
-							multiple
-							required
-						/>
-					</div>
-					<Button type="submit" size="sm" variant="outline" class="sm:col-span-3 sm:w-fit">
-						Upload
-					</Button>
-				</form>
-				{#if leaseDocuments.length > 0}
-					<ul class="divide-y rounded-md border text-sm">
-						{#each leaseDocuments as doc (doc.id)}
-							<li class="flex items-center gap-3 p-3">
-								{#if isImageFile(doc.file)}
-									<img
-										src="{docUrl(doc.id, doc.file)}?thumb=100x100"
-										alt=""
-										class="size-10 shrink-0 rounded border object-cover"
-									/>
-								{:else}
-									<FileText class="text-muted-foreground size-4 shrink-0" />
+				</div>
+				<CardContent class="flex flex-col gap-4">
+					{#if form?.section === 'inspections'}
+						<p class="bg-muted rounded-md px-3 py-2 text-sm">{form.message}</p>
+					{/if}
+					<form
+						method="POST"
+						action="?/scheduleInspection"
+						use:enhance
+						class="grid items-end gap-3 sm:grid-cols-3"
+					>
+						<input type="hidden" name="lease" value={lease.id} />
+						<div class="flex flex-col gap-2">
+							<Label for="i-date">Date</Label>
+							<Input id="i-date" name="date" type="date" required />
+						</div>
+						<div class="flex flex-col gap-2">
+							<Label for="i-type">Type</Label>
+							<Select.Root type="single" name="type" value="move_in">
+								<Select.Trigger id="i-type" class="w-full"><Select.Value /></Select.Trigger>
+								<Select.Content>
+									<Select.Item value="move_in">Move-in</Select.Item>
+									<Select.Item value="periodic">Periodic</Select.Item>
+									<Select.Item value="move_out">Move-out</Select.Item>
+								</Select.Content>
+							</Select.Root>
+						</div>
+						<div class="flex flex-col gap-2">
+							<Label for="i-notes">Notes</Label>
+							<Input id="i-notes" name="notes" placeholder="Optional" />
+						</div>
+						<Button
+							type="submit"
+							size="sm"
+							variant="outline"
+							class="border-orange-200 bg-orange-100 text-orange-900 shadow-sm hover:bg-orange-200 sm:col-span-3 sm:w-fit"
+						>
+							Schedule
+						</Button>
+					</form>
+					{#if inspections.length > 0}
+						<ul class="divide-y rounded-md border text-sm">
+							{#each inspections as i (i.id)}
+								<li class="flex items-center justify-between gap-2 p-3">
+									<a
+										href="/dashboard/inspections/{i.id}"
+										class="font-medium capitalize underline-offset-4 hover:underline"
+									>
+										{i.type.replace('_', '-')}
+									</a>
+									<span class="text-muted-foreground">{formatDate(i.date)}</span>
+								</li>
+								{#if i.notes}
+									<li class="text-muted-foreground px-3 pb-3 text-sm">{i.notes}</li>
 								{/if}
-								<a
-									class="font-medium underline-offset-4 hover:underline"
-									href={docUrl(doc.id, doc.file)}
-									target="_blank"
-									rel="noreferrer">{doc.title}</a
-								>
-								<span class="text-muted-foreground ml-auto">{formatDate(doc.created)}</span>
-							</li>
-						{/each}
-					</ul>
-				{/if}
-			</CardContent>
-		</Card>
-	</div>
+							{/each}
+						</ul>
+					{/if}
+				</CardContent>
+			</Card>
+		</details>
 
+		<details class="group block" open={false}>
+			<summary class="list-none cursor-pointer [&::-webkit-details-marker]:hidden">
+				<div class="flex items-center justify-between gap-3 rounded-xl border border-transparent px-0 py-2 text-left">
+					<div class="flex items-center gap-2 text-base font-semibold text-slate-900">
+						<FileText class="text-gold size-5" /> Lease documents
+					</div>
+					<ChevronDown class="text-muted-foreground size-4 shrink-0 transition-transform group-open:rotate-180" />
+				</div>
+			</summary>
+			<Card>
+				<div class="px-4 pt-4 text-sm text-slate-600">Signed lease, addenda, and inspection reports.</div>
+				<CardContent class="flex flex-col gap-4">
+					{#if form?.section === 'documents'}
+						<p class="bg-muted rounded-md px-3 py-2 text-sm">{form.message}</p>
+					{/if}
+					<form
+						method="POST"
+						action="?/uploadLeaseDocument"
+						enctype="multipart/form-data"
+						use:enhance
+						class="grid items-end gap-3 sm:grid-cols-3"
+					>
+						<input type="hidden" name="lease" value={lease.id} />
+						<div class="flex flex-col gap-2">
+							<Label for="d-title">Title</Label>
+							<Input id="d-title" name="title" required placeholder="e.g. Signed lease" />
+						</div>
+						<div class="flex flex-col gap-2">
+							<Label for="d-kind">Type</Label>
+							<Select.Root type="single" name="kind" value="lease">
+								<Select.Trigger id="d-kind" class="w-full"><Select.Value /></Select.Trigger>
+								<Select.Content>
+									<Select.Item value="lease">Lease</Select.Item>
+									<Select.Item value="inspection">Inspection</Select.Item>
+									<Select.Item value="other">Other</Select.Item>
+								</Select.Content>
+							</Select.Root>
+						</div>
+						<div class="flex flex-col gap-2">
+							<Label for="d-files">Files (PDF, JPEG, or PNG)</Label>
+							<Input
+								id="d-files"
+								name="files"
+								type="file"
+								accept="application/pdf,image/jpeg,image/png"
+								multiple
+								required
+							/>
+						</div>
+						<Button
+							type="submit"
+							size="sm"
+							variant="outline"
+							class="border-orange-200 bg-orange-100 text-orange-900 shadow-sm hover:bg-orange-200 sm:col-span-3 sm:w-fit"
+						>
+							Upload
+						</Button>
+					</form>
+					{#if leaseDocuments.length > 0}
+						<ul class="divide-y rounded-md border text-sm">
+							{#each leaseDocuments as doc (doc.id)}
+								<li class="flex items-center gap-3 p-3">
+									{#if isImageFile(doc.file)}
+										<img
+											src="{docUrl(doc.id, doc.file)}?thumb=100x100"
+											alt=""
+											class="size-10 shrink-0 rounded border object-cover"
+										/>
+									{:else}
+										<FileText class="text-muted-foreground size-4 shrink-0" />
+									{/if}
+									<a
+										class="font-medium underline-offset-4 hover:underline"
+										href={docUrl(doc.id, doc.file)}
+										target="_blank"
+										rel="noreferrer">{doc.title}</a
+									>
+									<span class="text-muted-foreground ml-auto">{formatDate(doc.created)}</span>
+								</li>
+							{/each}
+						</ul>
+					{/if}
+				</CardContent>
+			</Card>
+		</details>
+	</div>
+	{/if}
+
+	{#if section !== 'records'}
 	<form method="POST" action="?/endLease" use:enhance class="self-start">
 		<input type="hidden" name="id" value={lease.id} />
 		{#if form?.section === 'lease'}
@@ -415,4 +475,5 @@
 			End lease &amp; mark unit available
 		</Button>
 	</form>
+	{/if}
 {/if}

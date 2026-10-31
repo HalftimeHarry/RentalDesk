@@ -4,7 +4,7 @@ import { requireUser } from '$lib/server/guard';
 import { getDefaultLease } from '$lib/server/lease';
 import { getLeaseCharges } from '$lib/server/billing';
 import { depositCharges, groupChargesByMonth } from '$lib/billing';
-import type { Lease, Payment } from '$lib/types';
+import type { Lease, Payment, UnitSettings } from '$lib/types';
 
 /**
  * Printable monthly statement. Tenants always get their own latest lease
@@ -49,12 +49,27 @@ export const load: PageServerLoad = async (event) => {
 	const statement =
 		groupChargesByMonth(published, payments).find((s) => s.month === month) ?? null;
 
+	// Branding for the printed statement: unit/business info plus the owner
+	// account's display name (best-effort — tenants may not be able to list users).
+	const settings = (await pb
+		.collection('settings')
+		.getList(1, 1, { sort: 'created' })
+		.then((l) => l.items[0] ?? null)
+		.catch(() => null)) as unknown as UnitSettings | null;
+	const owner = (await pb
+		.collection('users')
+		.getFirstListItem('role = "owner"')
+		.catch(() => null)) as { name?: string; email?: string } | null;
+
 	return {
 		user,
 		lease,
 		month,
 		statement,
 		deposits: depositCharges(published),
-		payments
+		payments,
+		unitName: settings?.unit_name ?? '',
+		businessAddress: settings?.address ?? '',
+		ownerName: owner?.name || owner?.email || ''
 	};
 };

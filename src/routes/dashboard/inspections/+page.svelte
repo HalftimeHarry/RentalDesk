@@ -238,6 +238,9 @@
 								{/if}
 
 								<div class="mt-3 flex flex-wrap items-center gap-2">
+									{#if !i.archived}
+										<Button href="/dashboard/inspections/{i.id}" variant="outline" size="sm">Edit</Button>
+									{/if}
 									{#if i.archived}
 										<form method="POST" action="?/restoreInspection" use:enhance>
 											<input type="hidden" name="id" value={i.id} />

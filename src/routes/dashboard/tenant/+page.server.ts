@@ -2,7 +2,9 @@ import { fail, type Actions } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { requireRole } from '$lib/server/guard';
 import { maintenancePhotoError, MAINTENANCE_PHOTO, daysBetween } from '$lib/files';
-import { buildNoticePdf } from '$lib/server/pdf';
+import { buildBrandedNoticePdf } from '$lib/server/pdf';
+import { earliestMoveOutDate, MIN_NOTICE_DAYS, pacificToday } from '$lib/move-out-notice';
+import { formatDate } from '$lib/format';
 import { managementContact } from '$lib/server/messages';
 import { getLeaseCharges, summarizeLedger } from '$lib/server/billing';
 import type { Charge, DocRecord, HelpVideo, Inspection, Lease, MaintenanceRequest, Message, MoveOutNotice, Payment, PropertyAccess, UnitSettings } from '$lib/types';
@@ -293,6 +295,14 @@ export const actions: Actions = {
 		if (!/^\d{4}-\d{2}-\d{2}$/.test(requestedDate)) {
 			return fail(400, { section: 'notice', message: 'Choose your intended move-out date.' });
 		}
+		// 30-day minimum, Pacific time — enforced for new notices AND corrections.
+		const earliestDate = earliestMoveOutDate();
+		if (requestedDate < earliestDate) {
+			return fail(400, {
+				section: 'notice',
+				message: `The requested move-out date must be at least ${MIN_NOTICE_DAYS} days after submission (Pacific time). Earliest selectable date: ${formatDate(earliestDate)}.`
+			});
+		}
 		if (!signer) return fail(400, { section: 'notice', message: 'Type your full name to sign.' });
 		if (!confirmed) {
 			return fail(400, { section: 'notice', message: 'Please confirm the notice before submitting.' });
@@ -347,25 +357,36 @@ export const actions: Actions = {
 		const tenantNames = lease.expand?.tenant?.name || user.name || user.email;
 
 		const submittedAt = new Date();
-		const submittedDate = submittedAt.toISOString().slice(0, 10);
+		const submittedDate = pacificToday(submittedAt);
 		const days = daysBetween(submittedDate, requestedDate);
 
-		const pdf = buildNoticePdf('Move-out notice', [
-			`Tenant(s): ${tenantNames}`,
-			`Property: ${address}${unit ? `, Unit: ${unit}` : ''}`,
-			'',
-			`I intend to end my tenancy at the above unit on ${requestedDate}.`,
-			`Forwarding address: ${forwarding || 'Not provided'}`,
-			`Notes: ${notes || '—'}`,
-			'',
-			`Submitted in the app on ${submittedDate} at ${submittedAt.toISOString().slice(11, 16)} UTC (server timestamp).`,
-			`Days between submission and requested move-out: ${days}.`,
-			`Confirmed by (typed signature): ${signer}`,
-			'',
-			'This in-app notice informs the management team. It may not by itself satisfy',
-			'California or San Diego legal notice or delivery requirements, and the chosen',
-			'date does not override the fixed lease term or other notice requirements.'
-		]);
+		// Branded frozen copy — existing stored PDFs are never regenerated.
+		const pdf = buildBrandedNoticePdf({
+			title: 'Move-out notice',
+			subtitle: `Submitted ${formatDate(submittedDate)}`,
+			unitName: unit,
+			address,
+			ownerName: '',
+			lines: [
+				`Tenant(s): ${tenantNames}`,
+				`Property: ${address || '-'}${unit ? `, Unit: ${unit}` : ''}`,
+				`Submission date: ${formatDate(submittedDate)} (Pacific time)`,
+				`Requested move-out date: ${formatDate(requestedDate)}`,
+				`Notice length: ${days} days`,
+				'',
+				`I intend to end my tenancy at the above unit on ${formatDate(requestedDate)}.`,
+				`Forwarding address: ${forwarding || 'Not provided'}`,
+				`Notes: ${notes || '—'}`,
+				'',
+				`Submitted in the app on ${submittedDate} at ${submittedAt.toISOString().slice(11, 16)} UTC (server timestamp).`,
+				`Confirmed by (typed signature): ${signer}`,
+				'',
+				'This notice is a request: it informs the management team of the tenant\'s intent.',
+				'It does not approve early termination and does not change the lease automatically.',
+				'It may not by itself satisfy California or San Diego legal notice or delivery',
+				'requirements, and the chosen date does not override the fixed lease term.'
+			]
+		});
 
 		const payload = new FormData();
 		payload.append('lease', lease.id);

@@ -3,18 +3,12 @@
 	import type { FormFeedback } from './ApplicantsCard.svelte';
 	import { enhance } from '$app/forms';
 	import { Button } from '$lib/components/ui/button';
-	import {
-		Card,
-		CardContent,
-		CardDescription,
-		CardHeader,
-		CardTitle
-	} from '$lib/components/ui/card';
+	import { Card, CardContent } from '$lib/components/ui/card';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { fileUrl } from '$lib/files';
-	import { Check, Copy, Eye, EyeOff, KeyRound, Settings, Trash2 } from '@lucide/svelte';
+	import { Check, ChevronDown, Copy, Eye, EyeOff, KeyRound, Settings, Trash2 } from '@lucide/svelte';
 
 	let {
 		settings,
@@ -70,150 +64,175 @@
 	}
 </script>
 
-<Card>
-	<CardHeader>
-			<CardTitle class="flex items-center gap-2">
-				<Settings class="text-turquoise size-5" /> Unit settings
-			</CardTitle>
-		<CardDescription>
-			Shown on the public landing page. Rent and deposit set the defaults for new leases.
-		</CardDescription>
-	</CardHeader>
-	<CardContent>
-		{#if form?.section === 'settings'}
-			<p class="bg-muted mb-3 rounded-md px-3 py-2 text-sm">{form.message}</p>
-		{/if}
-		<form
-			method="POST"
-			action="?/updateSettings"
-			enctype="multipart/form-data"
-			use:enhance
-			class="flex flex-col gap-4"
-		>
-			<div class="grid gap-4 sm:grid-cols-2">
-				<div class="flex flex-col gap-2">
-					<Label for="s-name">Unit name</Label>
-					<Input id="s-name" name="unit_name" required value={settings.unit_name} />
+<Card class="border-slate-200 bg-slate-50 shadow-sm">
+	<details class="group block" open={false}>
+		<summary class="list-none cursor-pointer [&::-webkit-details-marker]:hidden">
+			<div class="flex items-center justify-between gap-3 px-4 pt-4 text-left">
+				<div class="flex items-center gap-2 font-semibold text-slate-900">
+					<Settings class="text-turquoise size-5" /> Unit settings
 				</div>
-				<div class="flex flex-col gap-2">
-					<Label for="s-address">Address</Label>
-					<Input id="s-address" name="address" value={settings.address} />
-				</div>
+				<ChevronDown class="text-muted-foreground size-4 shrink-0 transition-transform group-open:rotate-180" />
 			</div>
-			<div class="flex flex-col gap-2">
-				<Label for="s-desc">Description</Label>
-				<Textarea id="s-desc" name="description" rows={4} value={settings.description} />
-			</div>
-			<div class="grid gap-4 sm:grid-cols-3">
-				<div class="flex flex-col gap-2">
-					<Label for="s-rent">Monthly rent (USD)</Label>
-					<Input
-						id="s-rent"
-						name="monthly_rent"
-						inputmode="decimal"
-						required
-						value={(settings.monthly_rent_cents / 100).toFixed(2)}
-					/>
-				</div>
-				<div class="flex flex-col gap-2">
-					<Label for="s-deposit">Security deposit (USD)</Label>
-					<Input
-						id="s-deposit"
-						name="deposit"
-						inputmode="decimal"
-						required
-						value={(settings.deposit_cents / 100).toFixed(2)}
-					/>
-				</div>
-				<div class="flex flex-col gap-2">
-					<Label for="s-fee">Credit-check fee (USD)</Label>
-					<Input
-						id="s-fee"
-						name="screening_fee"
-						inputmode="decimal"
-						required
-						value={((settings.screening_fee_cents > 0 ? settings.screening_fee_cents : 3500) / 100).toFixed(2)}
-					/>
-				</div>
-				<div class="flex flex-col gap-2">
-					<Label for="s-min">Minimum lease (months)</Label>
-					<Input
-						id="s-min"
-						name="min_lease_months"
-						type="number"
-						min="1"
-						required
-						value={settings.min_lease_months}
-					/>
-				</div>
-			</div>
-			<div class="grid gap-4 sm:grid-cols-2">
-				<div class="flex flex-col gap-2">
-					<Label for="s-avail">Available after</Label>
-					<Input id="s-avail" name="available_date" type="date" value={settings.available_date} />
-				</div>
-				<label class="flex items-center gap-2 self-end pb-2 text-sm">
-					<input
-						type="checkbox"
-						name="is_available"
-						class="size-4 accent-current"
-						checked={settings.is_available}
-					/>
-					Listed as available
-				</label>
-			</div>
-			<div class="flex flex-col gap-2">
-				<Label for="s-photos">Add listing photos (public on the landing page)</Label>
-				<Input id="s-photos" name="photos" type="file" accept="image/jpeg,image/png" multiple />
-				<p class="text-muted-foreground text-xs">
-					New photos are appended to the current set. Only photos uploaded here are public —
-					applicant and tenant documents always stay private.
+		</summary>
+		<div class="px-4 pt-3">
+			<p class="text-sm text-slate-600">
+				Shown on the public landing page. Rent and deposit set the defaults for new leases.
+			</p>
+		</div>
+		<CardContent class="px-4 pb-4">
+			{#if form?.section === 'settings'}
+				<p
+					class={form.message?.toLowerCase().includes('error') || form.message?.toLowerCase().includes('failed') || form.message?.toLowerCase().includes('could not')
+						? 'mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700'
+						: 'mb-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800'}
+					aria-live="polite"
+				>
+					{form.message}
 				</p>
-			</div>
-			<Button type="submit" size="sm" class="w-fit">Save settings</Button>
-		</form>
-
-		{#if settings.photos.length > 0}
-			<div class="mt-4 flex flex-col gap-2 border-t pt-4">
-				<p class="text-sm font-medium">Current listing photos ({settings.photos.length})</p>
-				<div class="grid grid-cols-3 gap-2 sm:grid-cols-4">
-					{#each settings.photos as photo (photo)}
-						<figure class="relative">
-							<img
-								src={fileUrl('settings', settings.id, photo)}
-								alt=""
-								class="aspect-square w-full rounded-md border object-cover"
-							/>
-							<form
-								method="POST"
-								action="?/deleteSettingPhoto"
-								use:enhance
-								class="absolute top-1 right-1"
-							>
-								<input type="hidden" name="filename" value={photo} />
-								<Button
-									type="submit"
-									variant="destructive"
-									size="icon"
-									class="size-7"
-									aria-label="Remove photo"
-								>
-									<Trash2 class="size-3.5" />
-								</Button>
-							</form>
-						</figure>
-					{/each}
+			{/if}
+			<form
+				method="POST"
+				action="?/updateSettings"
+				enctype="multipart/form-data"
+				use:enhance
+				class="flex flex-col gap-4"
+			>
+				<div class="grid gap-4 sm:grid-cols-2">
+					<div class="flex flex-col gap-2">
+						<Label for="s-name">Unit name</Label>
+						<Input id="s-name" name="unit_name" required value={settings.unit_name} />
+					</div>
+					<div class="flex flex-col gap-2">
+						<Label for="s-address">Address</Label>
+						<Input id="s-address" name="address" value={settings.address} />
+					</div>
 				</div>
-			</div>
-		{/if}
+				<div class="flex flex-col gap-2">
+					<Label for="s-desc">Description</Label>
+					<Textarea id="s-desc" name="description" rows={4} value={settings.description} />
+				</div>
+				<div class="grid gap-4 sm:grid-cols-3">
+					<div class="flex flex-col gap-2">
+						<Label for="s-rent">Monthly rent (USD)</Label>
+						<Input
+							id="s-rent"
+							name="monthly_rent"
+							inputmode="decimal"
+							required
+							value={(settings.monthly_rent_cents / 100).toFixed(2)}
+						/>
+					</div>
+					<div class="flex flex-col gap-2">
+						<Label for="s-deposit">Security deposit (USD)</Label>
+						<Input
+							id="s-deposit"
+							name="deposit"
+							inputmode="decimal"
+							required
+							value={(settings.deposit_cents / 100).toFixed(2)}
+						/>
+					</div>
+					<div class="flex flex-col gap-2">
+						<Label for="s-fee">Credit-check fee (USD)</Label>
+						<Input
+							id="s-fee"
+							name="screening_fee"
+							inputmode="decimal"
+							required
+							value={((settings.screening_fee_cents > 0 ? settings.screening_fee_cents : 3500) / 100).toFixed(2)}
+						/>
+					</div>
+					<div class="flex flex-col gap-2">
+						<Label for="s-min">Minimum lease (months)</Label>
+						<Input
+							id="s-min"
+							name="min_lease_months"
+							type="number"
+							min="1"
+							required
+							value={settings.min_lease_months}
+						/>
+					</div>
+				</div>
+				<div class="grid gap-4 sm:grid-cols-2">
+					<div class="flex flex-col gap-2">
+						<Label for="s-avail">Available after</Label>
+						<Input id="s-avail" name="available_date" type="date" value={settings.available_date} />
+					</div>
+					<div class="flex flex-col self-end pb-2">
+						<label class="flex items-center gap-2 text-sm">
+							<input
+								type="checkbox"
+								name="is_available"
+								value="true"
+								class="size-4 accent-current"
+								checked={settings.is_available}
+							/>
+							Listed as available
+						</label>
+						<p class="text-muted-foreground mt-1 text-[11px]">Click Save Settings to apply changes</p>
+					</div>
+				</div>
+				<div class="flex flex-col gap-2">
+					<Label for="s-photos">Add listing photos (public on the landing page)</Label>
+					<Input id="s-photos" name="photos" type="file" accept="image/jpeg,image/png" multiple />
+					<p class="text-muted-foreground text-xs">
+						New photos are appended to the current set. Only photos uploaded here are public —
+						applicant and tenant documents always stay private.
+					</p>
+				</div>
+				<Button type="submit" size="sm" class="w-fit">Save settings</Button>
+			</form>
 
-		<div class="mt-6 border-t pt-5">
+			{#if settings.photos.length > 0}
+				<div class="mt-4 flex flex-col gap-2 border-t pt-4">
+					<p class="text-sm font-medium">Current listing photos ({settings.photos.length})</p>
+					<div class="grid grid-cols-3 gap-2 sm:grid-cols-4">
+						{#each settings.photos as photo (photo)}
+							<figure class="relative">
+								<img
+									src={fileUrl('settings', settings.id, photo)}
+									alt=""
+									class="aspect-square w-full rounded-md border object-cover"
+								/>
+								<form
+									method="POST"
+									action="?/deleteSettingPhoto"
+									use:enhance
+									class="absolute top-1 right-1"
+								>
+									<input type="hidden" name="filename" value={photo} />
+									<Button
+										type="submit"
+										variant="destructive"
+										size="icon"
+										class="size-7"
+										aria-label="Remove photo"
+									>
+										<Trash2 class="size-3.5" />
+									</Button>
+								</form>
+							</figure>
+						{/each}
+					</div>
+				</div>
+			{/if}
+		</CardContent>
+	</details>
+
+	<details class="group block" open={false}>
+		<summary class="list-none cursor-pointer [&::-webkit-details-marker]:hidden">
+			<div class="flex items-center justify-between gap-3 px-4 pb-4 text-left">
+				<div class="flex items-center gap-2 font-semibold text-slate-900">
+					<KeyRound class="text-ocean size-5" /> Property access
+				</div>
+				<ChevronDown class="text-muted-foreground size-4 shrink-0 transition-transform group-open:rotate-180" />
+			</div>
+		</summary>
+		<CardContent class="px-4 pb-4">
 			<div class="mb-4 flex items-center gap-2">
 				<KeyRound class="text-ocean size-5" />
-				<div>
-					<p class="text-base font-semibold">Property access</p>
-					<p class="text-muted-foreground text-xs">Gate codes and lockbox entries for this property.</p>
-				</div>
+				<p class="text-muted-foreground text-xs">Gate codes and lockbox entries for this property.</p>
 			</div>
 			{#if form?.section === 'property_access'}
 				<p class="mb-3 rounded-md bg-emerald-100 px-3 py-2 text-sm text-emerald-900">{form.message}</p>
@@ -323,6 +342,6 @@
 					{/each}
 				{/if}
 			</div>
-		</div>
-	</CardContent>
+		</CardContent>
+	</details>
 </Card>
