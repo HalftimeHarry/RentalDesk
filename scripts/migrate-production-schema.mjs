@@ -88,7 +88,7 @@ const defs = [
 			{ name: 'title', type: 'text', required: true, max: 200 },
 			{ name: 'description', type: 'text', max: 2000 },
 			{ name: 'audience', type: 'select', required: true, maxSelect: 1, values: ['tenant', 'admin'] },
-			{ name: 'placement', type: 'select', required: true, maxSelect: 1, values: ['tenant_dashboard', 'manage_billing'] },
+			{ name: 'placement', type: 'select', required: true, maxSelect: 1, values: ['tenant_dashboard', 'manage_dashboard', 'manage_billing'] },
 			{ name: 'video_file', type: 'file', required: true, maxSelect: 1, maxSize: 25165824, protected: true, mimeTypes: ['video/mp4'] },
 			{ name: 'thumbnail', type: 'file', required: true, maxSelect: 1, maxSize: 5242880, protected: true, mimeTypes: ['image/jpeg', 'image/png', 'image/webp'] },
 			{ name: 'captions', type: 'file', required: true, maxSelect: 1, maxSize: 1048576, protected: true, mimeTypes: ['text/vtt', 'text/plain'] },

@@ -22,8 +22,6 @@
 	import { noticePdfUrl, daysBetween } from '$lib/files';
 	import { signedInspectionCandidates, unfinishedInspectionCandidates } from '$lib/inspection';
 	import { Input } from '$lib/components/ui/input';
-	import * as Dialog from '$lib/components/ui/dialog';
-	import { buttonVariants } from '$lib/components/ui/button';
 	import {
 		CalendarClock,
 		ChevronDown,
@@ -43,7 +41,10 @@
 	let isOwner = $derived(data.user.role === 'owner');
 	let managementHelpVideos = $derived(
 		data.helpVideos.filter(
-			(v) => v.placement === 'tenant_dashboard' || v.placement === 'manage_billing'
+			(v) =>
+				v.placement === 'manage_dashboard' ||
+				v.placement === 'tenant_dashboard' ||
+				v.placement === 'manage_billing'
 		)
 	);
 	let pendingApplications = $derived(
@@ -156,57 +157,13 @@
 							? 'Active lease'
 							: 'No active lease'} · {data.unpaidCharges.length} unpaid
 				</span>
-				<Dialog.Root>
-					<Dialog.Trigger
-						class={buttonVariants({
-							variant: 'outline',
-							className:
-								'min-h-12 w-full border-orange-200 bg-orange-100 text-orange-900 shadow-sm hover:bg-orange-200'
-						})}
-					>
-						<Receipt class="size-4" /> Manage bills
-					</Dialog.Trigger>
-					<Dialog.Portal>
-						<Dialog.Overlay />
-						<Dialog.Content class="bg-card text-card-foreground mx-4 max-w-md rounded-xl border p-6 shadow-lg">
-							<Dialog.Header>
-								<Dialog.Title>Manage bills</Dialog.Title>
-								<Dialog.Description>
-									{data.activeLease?.expand?.tenant?.name || 'No tenant'} ·{' '}
-									{#if data.activeLease}
-										{formatDate(data.activeLease.start_date)} – {formatDate(data.activeLease.end_date)}
-									{/if}
-								</Dialog.Description>
-							</Dialog.Header>
-							{#if data.unpaidCharges.length === 0}
-								<p class="text-muted-foreground py-2 text-sm">No unpaid published charges.</p>
-							{:else}
-								<ul class="flex max-h-64 flex-col gap-2 overflow-y-auto py-2">
-									{#each data.unpaidCharges as c (c.id)}
-										<li class="flex items-center justify-between gap-2 rounded-lg border p-3 text-sm">
-											<div>
-												<p class="font-medium">{c.description}</p>
-												<p class="text-muted-foreground text-xs">
-													due {formatDate(c.due_date)} · remaining{' '}
-													{formatMoney(c.amount_cents - c.paid_cents)}
-												</p>
-											</div>
-											<span class="font-medium">{formatMoney(c.amount_cents)}</span>
-										</li>
-									{/each}
-								</ul>
-							{/if}
-							<Dialog.Footer class="flex-col items-center gap-2">
-								<Button href="/dashboard/manage/billing" class="min-h-12 w-full sm:w-auto">
-									<Receipt class="size-4" /> Open billing workspace
-								</Button>
-								<Dialog.Close class={buttonVariants({ variant: 'outline', className: 'min-h-12 w-full sm:w-auto' })}>
-									Close
-								</Dialog.Close>
-							</Dialog.Footer>
-						</Dialog.Content>
-					</Dialog.Portal>
-				</Dialog.Root>
+				<Button
+					href="/dashboard/manage/billing"
+					variant="outline"
+					class="min-h-12 w-full border-orange-200 bg-orange-100 text-orange-900 shadow-sm hover:bg-orange-200"
+				>
+					<Receipt class="size-4" /> Manage bills
+				</Button>
 			</CardContent>
 		</Card>
 		<!-- Manage Unit sits directly above Overview in the wide column of the summary grid. -->
