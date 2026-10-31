@@ -248,34 +248,48 @@
 	const depositRow = $derived.by(() => {
 		const dc = data.charges.find((c) => c.type === 'deposit' && c.status === 'published');
 		if (dc) {
-			const remaining = Math.max(0, dc.amount_cents - paidFor(dc));
-			return remaining > 0 ? { remaining, billed: true } : null;
+			const paid = paidFor(dc);
+			const remaining = Math.max(0, dc.amount_cents - paid);
+			return remaining > 0 ? { charged: dc.amount_cents, paid, remaining, billed: true } : null;
 		}
 		if (lease && lease.deposit_cents > 0 && depositRemaining > 0) {
-			return { remaining: depositRemaining, billed: false };
+			return {
+				charged: lease.deposit_cents,
+				paid: ledger.depositPaid,
+				remaining: depositRemaining,
+				billed: false
+			};
 		}
 		return null;
 	});
 	// Outstanding items, largest remaining balance first. Drafts never reach the client
 	// (API rules); the published-only filter is belt-and-suspenders. The deposit joins
-	// the same ordering but keeps its own styling in the list.
+	// the same ordering but keeps its own styling in the list. Each row carries the
+	// full charged/paid/remaining breakdown so partial payments stay visible.
 	const balanceItems = $derived.by(() => {
 		const items: (
-			| { kind: 'charge'; c: Charge; remaining: number }
-			| { kind: 'deposit'; remaining: number; billed: boolean }
+			| { kind: 'charge'; c: Charge; charged: number; paid: number; remaining: number }
+			| { kind: 'deposit'; charged: number; paid: number; remaining: number; billed: boolean }
 		)[] = data.charges
 			.filter((c) => c.status === 'published' && c.type !== 'deposit')
-			.map((c) => ({
-				kind: 'charge' as const,
-				c,
-				remaining: Math.max(0, c.amount_cents - paidFor(c))
-			}))
+			.map((c) => {
+				const paid = paidFor(c);
+				return {
+					kind: 'charge' as const,
+					c,
+					charged: c.amount_cents,
+					paid,
+					remaining: Math.max(0, c.amount_cents - paid)
+				};
+			})
 			.filter((r) => r.remaining > 0);
 		if (depositRow) {
-			items.push({ kind: 'deposit', remaining: depositRow.remaining, billed: depositRow.billed });
+			items.push({ kind: 'deposit', ...depositRow });
 		}
 		return items.sort((a, b) => b.remaining - a.remaining);
 	});
+	// The total already includes a billed outstanding deposit — call that out next to it.
+	const totalIncludesDeposit = $derived(!!depositRow?.billed);
 	const chargeTypeLabels: Record<string, string> = {
 		rent: 'Rent',
 		deposit: 'Deposit',
@@ -422,26 +436,64 @@
 						{#each balanceItems as item (item.kind === 'charge' ? item.c.id : 'deposit')}
 							{#if item.kind === 'charge'}
 								{@const Icon = item.c.type === 'rent' ? House : item.c.type === 'late_fee' ? Receipt : Zap}
-								<li class="flex items-center gap-3 py-2.5">
-									<Icon class="text-ocean size-4 shrink-0" />
-									<span class="min-w-0 flex-1 truncate text-sm">{shortLabel(item.c)}</span>
-									<span class="shrink-0 text-sm font-medium tabular-nums">
-										{formatMoney(item.remaining)}
+								<li class="flex items-start gap-3 py-2.5">
+									<Icon class="text-ocean mt-0.5 size-4 shrink-0" />
+									<span class="min-w-0 flex-1 text-sm">
+										<span class="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+											<span class="truncate">{shortLabel(item.c)}</span>
+											{#if item.paid > 0}
+												<span class="bg-turquoise/15 text-navy rounded-full px-2 py-0.5 text-[11px] font-medium">
+													Partially paid
+												</span>
+											{/if}
+										</span>
+										<span class="text-muted-foreground block text-xs tabular-nums">
+											Charged {formatMoney(item.charged)}
+											{#if item.paid > 0}
+												· Paid −{formatMoney(item.paid)}
+											{:else}
+												· Unpaid
+											{/if}
+										</span>
+									</span>
+									<span class="shrink-0 text-right">
+										<span class="block text-sm font-medium tabular-nums">
+											{formatMoney(item.remaining)}
+										</span>
+										<span class="text-muted-foreground block text-[11px]">remaining</span>
 									</span>
 								</li>
 							{:else}
-								<li class="bg-sand/70 -mx-2 my-0.5 flex items-center gap-3 rounded-lg px-2 py-2.5">
-									<ShieldCheck class="text-turquoise size-4 shrink-0" />
+								<li class="bg-sand/70 -mx-2 my-0.5 flex items-start gap-3 rounded-lg px-2 py-2.5">
+									<ShieldCheck class="text-turquoise mt-0.5 size-4 shrink-0" />
 									<span class="min-w-0 flex-1 text-sm">
-										Security deposit
+										<span class="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+											<span>Security deposit</span>
+											{#if item.paid > 0}
+												<span class="bg-turquoise/15 text-navy rounded-full px-2 py-0.5 text-[11px] font-medium">
+													Partially paid
+												</span>
+											{/if}
+										</span>
+										<span class="text-muted-foreground block text-xs tabular-nums">
+											Charged {formatMoney(item.charged)}
+											{#if item.paid > 0}
+												· Paid −{formatMoney(item.paid)}
+											{:else}
+												· Unpaid
+											{/if}
+										</span>
 										<span class="text-muted-foreground block text-xs">
-											Required: {formatMoney(lease.deposit_cents)} · {item.billed
+											Not rent — refundable deposit, {item.billed
 												? 'held separately'
 												: 'not yet billed — not in the total below'}
 										</span>
 									</span>
-									<span class="shrink-0 text-sm font-medium tabular-nums">
-										{formatMoney(item.remaining)}
+									<span class="shrink-0 text-right">
+										<span class="block text-sm font-medium tabular-nums">
+											{formatMoney(item.remaining)}
+										</span>
+										<span class="text-muted-foreground block text-[11px]">remaining</span>
 									</span>
 								</li>
 							{/if}
@@ -454,6 +506,11 @@
 							{formatMoney(ledger.totalBalance)}
 						</span>
 					</div>
+					{#if totalIncludesDeposit}
+						<p class="text-muted-foreground mt-1 text-right text-xs">
+							Includes the outstanding security deposit ({formatMoney(depositRow?.remaining ?? 0)}).
+						</p>
+					{/if}
 
 					<!-- How to pay: instructions only — no payment is processed or recorded here. -->
 					<div class="bg-seafoam/50 border-turquoise/25 mt-4 rounded-xl border p-4">
