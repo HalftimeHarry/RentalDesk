@@ -5,10 +5,13 @@ import { dashboardPath } from '$lib/server/guard';
 export const load: PageServerLoad = async ({ locals, url }) => {
 	const next = url.searchParams.get('next');
 	if (locals.user) redirect(303, next && next.startsWith('/') && !next.startsWith('//') ? next : dashboardPath(locals.user));
+	if (next && next.startsWith('/invite/')) redirect(303, next);
 };
 
 export const actions: Actions = {
 	default: async ({ request, locals, url }) => {
+		const nextParam = url.searchParams.get('next');
+		if (nextParam && nextParam.startsWith('/invite/')) redirect(303, nextParam);
 		const form = await request.formData();
 		const name = String(form.get('name') ?? '').trim();
 		const email = String(form.get('email') ?? '').trim().toLowerCase();
@@ -45,7 +48,7 @@ export const actions: Actions = {
 			return fail(400, { message, name, email });
 		}
 
-		const next = url.searchParams.get('next');
-		redirect(303, next && next.startsWith('/') && !next.startsWith('//') ? next : '/dashboard/applicant');
+		const redirectNext = url.searchParams.get('next');
+		redirect(303, redirectNext && redirectNext.startsWith('/') && !redirectNext.startsWith('//') ? redirectNext : '/dashboard/applicant');
 	}
 };
