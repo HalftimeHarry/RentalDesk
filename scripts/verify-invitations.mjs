@@ -101,21 +101,27 @@ try {
 	check('applicant blocked from creating invitations in PocketBase', createStatus >= 400, `status ${createStatus}`);
 	check('applicant sees no invitations in PocketBase', Array.isArray(outList) && outList.length === 0, '');
 
-	// --- new-user acceptance: register through the invite link, then accept -------
+	// --- new-user acceptance: invite-specific setup creates the account, then accept -------
 	const token1 = url1.split('/invite/')[1];
 	let res = await fetch(`${APP}/invite/${token1}`, { redirect: 'manual' });
 	const invitePage = await res.text();
-	check('invite page offers sign-in/create-account for logged-out visitor',
-		res.status === 200 && invitePage.includes('/register?next=/invite/'), `status ${res.status}`);
-	// register with next back to the invite
+	check('invite page offers locked account setup for logged-out visitor',
+		res.status === 200 && invitePage.includes('Create account') && !invitePage.includes('/register?next=/invite/'), `status ${res.status}`);
 	const reg = await fetch(`${APP}/register?next=/invite/${token1}`, {
+		method: 'GET',
+		headers: { accept: 'text/html' },
+		redirect: 'manual'
+	});
+	check('generic registration is redirected away from the invite setup flow', reg.status === 303 && (reg.headers.get('location') ?? '').includes(`/invite/${token1}`), reg.headers.get('location') ?? '');
+	const setup = await fetch(`${APP}/invite/${token1}?/setup`, {
 		method: 'POST',
 		headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'text/html' },
 		body: new URLSearchParams({ name: 'Invited New', email: 'rdtest-inv-new@example.com', password: pw, passwordConfirm: pw }),
 		redirect: 'manual'
 	});
-	check('register redirects back to the invite link', reg.status === 303 && (reg.headers.get('location') ?? '').includes(`/invite/${token1}`), reg.headers.get('location') ?? '');
-	const newCookie = cookieFrom(reg);
+	check('invite account setup creates the invited account and redirects back to the invite',
+		setup.status === 303 && (setup.headers.get('location') ?? '').includes(`/invite/${token1}`), setup.headers.get('location') ?? '');
+	const newCookie = cookieFrom(setup);
 	const newUser = await su.collection('users').getFirstListItem('email = "rdtest-inv-new@example.com"');
 	createdUsers.push(newUser.id);
 	r = await post(newCookie, `/invite/${token1}`, 'accept', {});

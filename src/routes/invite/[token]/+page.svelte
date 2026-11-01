@@ -38,15 +38,56 @@
 				<p>This invitation has expired. Ask the management team for a new one.</p>
 			{:else if !data.userEmail}
 				<p>
-					This invitation is for <strong>{data.email}</strong>. Sign in or create an account with
-					that email to accept it.
+					This invitation is for <strong>{data.email}</strong>. Set up your account with that email
+					to accept it.
 				</p>
-				<div class="flex flex-col gap-2">
-					<Button href="/login?next=/invite/{data.token}" class="min-h-12 w-full">Sign in</Button>
-					<Button href="/register?next=/invite/{data.token}" variant="outline" class="min-h-12 w-full">
-						Create account
-					</Button>
-				</div>
+				<form method="POST" action="?/setup" use:enhance class="flex flex-col gap-3">
+					<label class="flex flex-col gap-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+						Full name
+						<input
+							name="name"
+							autocomplete="name"
+							required
+							class="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring min-h-11 rounded-md border px-3 text-sm outline-none focus-visible:ring-2"
+						/>
+					</label>
+					<label class="flex flex-col gap-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+						Invited email
+						<input
+							value={data.email}
+							readonly
+							disabled
+							class="border-input bg-muted/40 min-h-11 rounded-md border px-3 text-sm text-muted-foreground"
+						/>
+						<input type="hidden" name="email" value={data.email} />
+					</label>
+					<label class="flex flex-col gap-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+						Password
+						<input
+							type="password"
+							name="password"
+							autocomplete="new-password"
+							required
+							class="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring min-h-11 rounded-md border px-3 text-sm outline-none focus-visible:ring-2"
+						/>
+					</label>
+					<label class="flex flex-col gap-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+						Confirm password
+						<input
+							type="password"
+							name="passwordConfirm"
+							autocomplete="new-password"
+							required
+							class="border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring min-h-11 rounded-md border px-3 text-sm outline-none focus-visible:ring-2"
+						/>
+					</label>
+					<div class="flex flex-col gap-2 pt-1">
+						<Button type="submit" class="min-h-12 w-full">Create account & continue</Button>
+						<Button href="/login?next=/invite/{data.token}" variant="outline" class="min-h-12 w-full">
+							I already have an account
+						</Button>
+					</div>
+				</form>
 			{:else if data.userEmail.toLowerCase() === data.email.toLowerCase()}
 				<p>
 					Signed in as <strong>{data.userEmail}</strong>. Accept to get Admin access to Rental

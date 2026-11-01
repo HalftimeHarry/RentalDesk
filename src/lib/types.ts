@@ -183,7 +183,7 @@ export interface Invitation {
 	email: string;
 	role: 'admin';
 	token: string;
-	status: 'pending' | 'accepted' | 'expired';
+	status: 'pending' | 'accepted' | 'expired' | 'revoked';
 	invited_by: string; // relation -> users.id
 	expires: string; // ISO datetime
 	accepted_by: string; // relation -> users.id ('' until accepted)
