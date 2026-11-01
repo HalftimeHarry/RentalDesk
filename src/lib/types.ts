@@ -126,7 +126,7 @@ export interface HelpVideo {
 	title: string;
 	description: string;
 	audience: 'tenant' | 'admin';
-	placement: 'tenant_dashboard' | 'manage_billing';
+	placement: 'tenant_dashboard' | 'manage_dashboard' | 'manage_billing';
 	video_file: string;
 	thumbnail: string;
 	captions: string;

@@ -11,9 +11,8 @@
 	import ApplicantsCard from '$lib/components/manage/ApplicantsCard.svelte';
 	import LeaseCard from '$lib/components/manage/LeaseCard.svelte';
 	import PendingLeaseCard from '$lib/components/manage/PendingLeaseCard.svelte';
-	import HelpVideoDialog from '$lib/components/HelpVideoDialog.svelte';
+	import HelpVideosCard from '$lib/components/manage/HelpVideosCard.svelte';
 	import { page } from '$app/state';
-	import type { HelpVideo } from '$lib/types';
 	import MaintenanceCard from '$lib/components/manage/MaintenanceCard.svelte';
 	import SettingsCard from '$lib/components/manage/SettingsCard.svelte';
 	import TeamCard from '$lib/components/manage/TeamCard.svelte';
@@ -42,26 +41,12 @@
 	let isOwner = $derived(data.user.role === 'owner');
 	let managementHelpVideos = $derived(
 		data.helpVideos.filter(
-			(v) => v.placement === 'tenant_dashboard' || v.placement === 'manage_billing'
+			(v) =>
+				v.placement === 'manage_dashboard' ||
+				v.placement === 'tenant_dashboard' ||
+				v.placement === 'manage_billing'
 		)
 	);
-	let helpVideoOpen = $state(false);
-	let selectedHelpVideo = $state<HelpVideo | null>(null);
-	let autoWatched = $state(false);
-
-	function watchHelpVideo(video: HelpVideo) {
-		selectedHelpVideo = video;
-		helpVideoOpen = true;
-	}
-
-	$effect(() => {
-		const watchSlug = page.url.searchParams.get('watch');
-		if (autoWatched || !watchSlug) return;
-		const match = managementHelpVideos.find((v) => v.slug === watchSlug);
-		if (!match) return;
-		autoWatched = true;
-		watchHelpVideo(match);
-	});
 	let pendingApplications = $derived(
 		data.applications.filter((a) => a.status === 'submitted' || a.status === 'under_review').length
 	);
@@ -124,20 +109,9 @@
 	</div>
 
 	{#if managementHelpVideos.length > 0}
-		<div class="mt-4 flex flex-wrap gap-2">
-			{#each managementHelpVideos as video (video.id)}
-				<Button
-					variant="outline"
-					size="sm"
-					class="min-h-11 gap-2 border-sky-200 bg-white text-sky-800 hover:bg-sky-50"
-					onclick={() => watchHelpVideo(video)}
-				>
-					<Play class="size-4" />
-					{video.title}
-				</Button>
-			{/each}
+		<div class="mt-4">
+			<HelpVideosCard videos={managementHelpVideos} autoWatchSlug={page.url.searchParams.get('watch') ?? ''} />
 		</div>
-		<HelpVideoDialog bind:open={helpVideoOpen} video={selectedHelpVideo} />
 	{/if}
 
 	{#if data.pendingLease}

@@ -92,6 +92,41 @@
 		}
 	}
 
+	// One-tap summary a tenant can paste to a delivery person: address, unit
+	// number, and every current code. Gates scope by `property`, so their `unit`
+	// field carries the real unit number; a lockbox's `unit` holds its scope value
+	// (the settings unit name/address), which is not a displayable unit number.
+	let deliveryUnit = $derived(
+		data.propertyAccess.find((e) => e.type === 'gate' && e.unit)?.unit ||
+			data.propertyAccess.find(
+				(e) => e.unit && e.unit !== data.settings?.unit_name && e.unit !== data.settings?.address
+			)?.unit ||
+			''
+	);
+	let deliveryCopyText = $derived.by(() => {
+		const lines: string[] = [];
+		const address = data.settings?.address?.trim();
+		if (address) lines.push(address);
+		if (deliveryUnit) lines.push(`Unit ${deliveryUnit}`);
+		for (const entry of data.propertyAccess) {
+			lines.push(`${entry.type === 'gate' ? 'Gate' : 'Door'} code: ${entry.code}`);
+		}
+		return lines.join('\n');
+	});
+	let deliveryCopied = $state(false);
+	let deliveryCopyTimer: ReturnType<typeof setTimeout> | undefined;
+	async function copyDeliveryInfo() {
+		try {
+			await navigator.clipboard.writeText(deliveryCopyText);
+			deliveryCopied = true;
+			clearTimeout(deliveryCopyTimer);
+			deliveryCopyTimer = setTimeout(() => (deliveryCopied = false), 2000);
+		} catch {
+			// Clipboard unavailable (e.g. insecure context) — leave the button unchanged.
+			deliveryCopied = false;
+		}
+	}
+
 	// ---- maintenance photos ---------------------------------------------------
 	// Picker state for the create form: local previews until the request is sent.
 	let photoInput = $state<HTMLInputElement | null>(null);
@@ -393,10 +428,21 @@
 	{:else if data.propertyAccess.length > 0}
 		<Card>
 			<CardHeader class="pb-3">
-				<CardTitle class="flex items-center gap-2">
-					<ShieldCheck class="text-ocean size-5" /> Property access
-				</CardTitle>
-				<CardDescription>Current gate and lockbox details for this unit.</CardDescription>
+				<div class="flex flex-wrap items-start justify-between gap-2">
+					<div class="space-y-1.5">
+						<CardTitle class="flex items-center gap-2">
+							<ShieldCheck class="text-ocean size-5" /> Property access
+						</CardTitle>
+						<CardDescription>Current gate and lockbox details for this unit.</CardDescription>
+					</div>
+					<Button type="button" variant="outline" size="sm" class="min-h-9" onclick={copyDeliveryInfo}>
+						{#if deliveryCopied}
+							<Check class="size-4" /> Copied
+						{:else}
+							<Copy class="size-4" /> Copy for delivery
+						{/if}
+					</Button>
+				</div>
 			</CardHeader>
 			<CardContent class="space-y-3">
 				{#each data.propertyAccess as entry (entry.id)}

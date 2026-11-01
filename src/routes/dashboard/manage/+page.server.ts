@@ -161,12 +161,12 @@ export const load: PageServerLoad = async (event) => {
 		.getFullList({ sort: 'label' })
 		.catch(() => [])) as unknown as PropertyAccess[];
 
-	// Staff walkthrough videos: the tenant dashboard overview and the billing
-	// overview, surfaced together at the top of the management dashboard.
+	// Staff walkthrough videos: the management-dashboard overview for admins, plus
+	// the tenant and billing walkthroughs, surfaced together at the top.
 	const helpVideos = (await pb
 		.collection('help_videos')
 		.getFullList({
-			filter: 'active = true && (placement = "tenant_dashboard" || placement = "manage_billing")',
+			filter: 'active = true && (placement = "manage_dashboard" || placement = "tenant_dashboard" || placement = "manage_billing")',
 			sort: 'created'
 		})
 		.catch(() => [])) as unknown as HelpVideo[];
