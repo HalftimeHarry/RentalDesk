@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { PropertyAccess, UnitSettings } from '$lib/types';
+	import type { HelpVideo, PropertyAccess, UnitSettings } from '$lib/types';
 	import type { FormFeedback } from './ApplicantsCard.svelte';
 	import { enhance } from '$app/forms';
 	import { Button } from '$lib/components/ui/button';
@@ -8,17 +8,31 @@
 	import { Label } from '$lib/components/ui/label';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { fileUrl } from '$lib/files';
+	import HelpVideoDialog from '$lib/components/HelpVideoDialog.svelte';
 	import { Check, ChevronDown, Copy, Eye, EyeOff, KeyRound, Settings, Trash2 } from '@lucide/svelte';
 
 	let {
 		settings,
 		form,
-		propertyAccess = []
+		propertyAccess = [],
+		helpVideos = []
 	}: {
 		settings: UnitSettings;
 		form: FormFeedback;
 		propertyAccess?: PropertyAccess[];
+		helpVideos?: HelpVideo[];
 	} = $props();
+
+	let propertyAccessVideo = $derived(
+		helpVideos.find(
+			(v) =>
+				v.slug === 'property-access-setup' &&
+				v.active &&
+				v.audience === 'admin' &&
+				v.placement === 'manage_dashboard'
+		) ?? null
+	);
+	let propertyAccessVideoOpen = $state(false);
 
 	let accessDraft = $state({
 		id: '',
@@ -234,6 +248,14 @@
 				<KeyRound class="text-ocean size-5" />
 				<p class="text-muted-foreground text-xs">Gate codes and lockbox entries for this property.</p>
 			</div>
+			{#if propertyAccessVideo}
+				<div class="mb-4">
+					<Button type="button" variant="outline" size="sm" class="min-h-9" onclick={() => (propertyAccessVideoOpen = true)}>
+						Watch setup example
+					</Button>
+				</div>
+				<HelpVideoDialog bind:open={propertyAccessVideoOpen} video={propertyAccessVideo} />
+			{/if}
 			{#if form?.section === 'property_access'}
 				<p class="mb-3 rounded-md bg-emerald-100 px-3 py-2 text-sm text-emerald-900">{form.message}</p>
 			{/if}
