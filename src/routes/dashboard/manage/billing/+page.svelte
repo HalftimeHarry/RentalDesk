@@ -201,7 +201,6 @@
 	let paying = $state('');
 	let payOpen = $state(false);
 	let payCharge: Charge | null = $state(null);
-	let payMonth: string | null = $state(null);
 
 	const methodLabels: Record<string, string> = {
 		zelle: 'Zelle',
@@ -217,12 +216,15 @@
 	<title>Billing — RentalDesk</title>
 </svelte:head>
 
-<div class="manage-panel bg-card text-card-foreground mb-6 flex flex-col rounded-xl border shadow-lg">
+<!-- Normal full page: a natural stack of branded cards over the coastal
+     background (no page-level panel/modal framing); the document scrolls
+     with the persistent bottom navigation from the app shell. -->
+<div class="mb-6 flex flex-col gap-6">
 	<div class="flex flex-wrap items-center gap-2">
 		<Button href="/dashboard/manage" variant="outline" size="sm">
 			<ArrowLeft class="size-4" /> Management
 		</Button>
-		<h1 class="text-navy text-2xl font-bold tracking-tight">Billing</h1>
+		<h1 class="text-2xl font-bold tracking-tight text-white drop-shadow-sm">Billing</h1>
 		{#if billingOverviewVideo}
 			<Button variant="outline" size="sm" class="ml-auto min-h-11" onclick={() => (helpVideoOpen = true)}>
 				<Play class="size-4" /> Watch Billing overview
@@ -235,13 +237,13 @@
 	{/if}
 
 	{#if data.leasesError}
-		<p class="bg-destructive/10 text-destructive rounded-md px-3 py-2 text-sm">
+		<p class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
 			Could not load the lease list: {data.leasesError}
 		</p>
 	{/if}
 	{#if data.leases.length > 1}
 		<div class="flex flex-wrap items-center gap-2">
-			<Label for="lease-picker" class="text-navy">Lease</Label>
+			<Label for="lease-picker" class="text-white drop-shadow-sm">Lease</Label>
 			<Select.Root
 				type="single"
 				value={data.lease?.id ?? ''}
@@ -271,7 +273,7 @@
 		</Card>
 	{:else}
 		<div>
-			<p class="text-navy font-medium">
+			<p class="font-medium text-white drop-shadow-sm">
 				{data.lease.expand?.tenant?.name || 'Tenant'} · {formatDate(data.lease.start_date)} –{' '}
 				{formatDate(data.lease.end_date)} · {formatMoney(data.lease.monthly_rent_cents)}/month
 			</p>
@@ -826,7 +828,6 @@
 								class="min-h-12 w-fit"
 								onclick={() => {
 									payCharge = c;
-									payMonth = null;
 									payOpen = true;
 								}}
 							>
@@ -871,7 +872,6 @@
 									class="min-h-9"
 									onclick={() => {
 										payCharge = r.c;
-										payMonth = null;
 										payOpen = true;
 									}}
 								>
@@ -907,11 +907,11 @@
 
 		<!-- Monthly statements -->
 		<div class="flex flex-col gap-4">
-			<h2 class="text-navy flex items-center gap-2 text-lg font-semibold tracking-tight">
+			<h2 class="flex items-center gap-2 text-lg font-semibold tracking-tight text-white drop-shadow-sm">
 				<CalendarDays class="size-5" />
 				Monthly statements
 			</h2>				{#if form?.section?.startsWith('sched-') && form.message?.startsWith('Published')}
-					<p class="bg-turquoise/15 text-navy rounded-md px-3 py-2 text-sm">
+					<p class="bg-seafoam text-navy rounded-md px-3 py-2 text-sm">
 						{form.message}
 					</p>
 				{/if}			<BillingStatement
@@ -922,11 +922,7 @@
 				leaseId={data.lease.id}
 				{form}
 				printHref={(m) => `/dashboard/billing/statement?month=${m}&lease=${data.lease.id}`}
-				onMonthPay={(m) => {
-					payMonth = m;
-					payCharge = null;
-					payOpen = true;
-				}}
+				monthPayHref={(m) => `/dashboard/manage/billing/record-monthly?lease=${data.lease.id}&month=${m}`}
 			/>
 		</div>
 
@@ -961,7 +957,7 @@
 			<RecordPaymentDialog
 				bind:open={payOpen}
 				charge={payCharge}
-				month={payMonth}
+				month={null}
 				charges={data.charges}
 				payments={data.payments}
 				tenantName={data.lease.expand?.tenant?.name || 'Tenant'}

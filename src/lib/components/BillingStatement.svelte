@@ -13,7 +13,7 @@
 	import { formatLaDateTime, publishWindow } from '$lib/schedule';
 	import { formatDate, formatMoney } from '$lib/format';
 	import type { Charge, Payment } from '$lib/types';
-	import { CalendarDays, FileText, HandCoins, Printer, ShieldCheck } from '@lucide/svelte';
+	import { CalendarDays, FileText, HandCoins, Printer, Receipt, ShieldCheck } from '@lucide/svelte';
 
 	let {
 		charges,
@@ -23,7 +23,8 @@
 		leaseId = '',
 		form = null,
 		printHref,
-		onMonthPay
+		onMonthPay,
+		monthPayHref
 	}: {
 		charges: Charge[];
 		payments: Payment[];
@@ -33,6 +34,9 @@
 		form?: { section?: string; message?: string } | null;
 		printHref?: (month: string) => string;
 		onMonthPay?: (month: string) => void;
+		/** When provided, "Record monthly payment" navigates to a dedicated page
+		 * instead of invoking the onMonthPay dialog callback. */
+		monthPayHref?: (month: string) => string;
 	} = $props();
 
 	const statements = $derived(groupChargesByMonth(charges, payments));
@@ -161,9 +165,24 @@
 						</Button>
 					{/if}
 					{#if canManage && st.remainingCents > 0}
-						<Button size="sm" class="min-h-12" onclick={() => onMonthPay?.(st.month)}>
-							<HandCoins class="size-4" /> Record monthly payment
-						</Button>
+						<!-- Styled to match the dashboard's "Manage bills" button. -->
+						{#if monthPayHref}
+							<Button
+								href={monthPayHref(st.month)}
+								variant="outline"
+								class="min-h-12 w-full border-orange-200 bg-orange-100 text-orange-900 shadow-sm hover:bg-orange-200 sm:w-auto"
+							>
+								<Receipt class="size-4" /> Record monthly payment
+							</Button>
+						{:else}
+							<Button
+								variant="outline"
+								class="min-h-12 w-full border-orange-200 bg-orange-100 text-orange-900 shadow-sm hover:bg-orange-200 sm:w-auto"
+								onclick={() => onMonthPay?.(st.month)}
+							>
+								<Receipt class="size-4" /> Record monthly payment
+							</Button>
+						{/if}
 					{/if}
 				</div>
 			</div>

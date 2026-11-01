@@ -143,16 +143,19 @@
 		</CardContent>
 	</Card>
 
-	<!-- Unit card: every value below is read from saved settings, never hardcoded. -->
+	<!-- Unit card: every value below is read from saved settings, never hardcoded.
+	     Display order: property address first, unit label beneath it. -->
 	<Card class="bg-sand/95 border-navy/10 shadow-md">
 		<CardHeader>
-			<CardTitle class="text-navy flex items-center gap-2 text-2xl">
-				<House class="text-ocean size-6 shrink-0" />
-				{settings.unit_name}
+			<CardTitle class="text-navy flex items-start gap-2 text-base leading-snug font-semibold">
+				<House class="text-ocean mt-0.5 size-5 shrink-0" />
+				<span class="flex flex-col">
+					<span>{settings.address || settings.unit_name}</span>
+					{#if settings.address}
+						<span>Unit {settings.unit_name}</span>
+					{/if}
+				</span>
 			</CardTitle>
-			{#if settings.address}
-				<CardDescription>{settings.address}</CardDescription>
-			{/if}
 		</CardHeader>
 		<CardContent class="flex flex-col gap-4">
 			<!-- Details + map: side by side on sm+, stacked (map below) on mobile. -->
