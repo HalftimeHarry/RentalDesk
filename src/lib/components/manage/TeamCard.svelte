@@ -1,30 +1,21 @@
 <script lang="ts">
-	import type { Invitation, User } from '$lib/types';
-	import type { FormFeedback } from './ApplicantsCard.svelte';
+	import type { User } from '$lib/types';
 	import { enhance } from '$app/forms';
 	import { Button } from '$lib/components/ui/button';
 	import { Card, CardContent } from '$lib/components/ui/card';
-	import { Input } from '$lib/components/ui/input';
-	import { Label } from '$lib/components/ui/label';
 	import * as Select from '$lib/components/ui/select';
 	import { Badge } from '$lib/components/ui/badge';
 	import { formatDate } from '$lib/format';
-	import { ChevronDown, MailPlus, UsersRound } from '@lucide/svelte';
-
-	type TeamForm = { section?: string; message?: string; inviteUrl?: string } | null | undefined;
+	import { ChevronDown, UsersRound } from '@lucide/svelte';
 
 	let {
 		users,
-		invitations,
 		currentUserId,
-		isOwner,
-		form
+		isOwner
 	}: {
 		users: User[];
-		invitations: Invitation[];
 		currentUserId: string;
 		isOwner: boolean;
-		form: TeamForm;
 	} = $props();
 
 	const roleLabels: Record<string, string> = {
@@ -33,9 +24,6 @@
 		applicant: 'Applicant',
 		tenant: 'Tenant'
 	};
-
-	const inviteStatusVariant = (status: string) =>
-		status === 'accepted' ? 'success' : status === 'expired' ? 'secondary' : 'warning';
 </script>
 
 <Card>
@@ -50,50 +38,10 @@
 		</summary>
 		<div class="px-4 pt-3">
 			<p class="text-sm text-slate-600">
-				Invite admins by link (Owner and Admin). Direct role changes stay Owner-only — Applicants
-				can never grant themselves management roles.
+				Direct role changes stay Owner-only — Applicants can never grant themselves management roles.
 			</p>
 		</div>
 		<CardContent class="flex flex-col gap-3">
-			{#if form?.section === 'team'}
-				<p class="bg-muted rounded-md px-3 py-2 text-sm">{form.message}</p>
-				{#if form.inviteUrl}
-					<div class="flex flex-col gap-1 rounded-md border border-turquoise/40 bg-turquoise/10 px-3 py-2">
-						<Label for="invite-link" class="text-xs">Invitation link (local testing — share manually)</Label>
-						<Input id="invite-link" readonly value={form.inviteUrl} onclick={(e) => e.currentTarget.select()} />
-					</div>
-				{/if}
-			{/if}
-
-			<form method="POST" action="?/inviteAdmin" use:enhance class="flex flex-wrap items-end gap-2 rounded-lg border p-3">
-				<div class="flex min-w-48 flex-1 flex-col gap-2">
-					<Label for="invite-email">Invite admin</Label>
-					<Input id="invite-email" name="email" type="email" placeholder="name@example.com" required />
-				</div>
-				<Button type="submit" variant="outline" class="min-h-12">
-					<MailPlus class="size-4" /> Invite admin
-				</Button>
-			</form>
-
-			{#if invitations.length > 0}
-				<div class="flex flex-col gap-1">
-					<p class="text-sm font-medium">Invitations</p>
-					<ul class="divide-y rounded-md border text-sm">
-						{#each invitations as inv (inv.id)}
-							<li class="flex flex-wrap items-center justify-between gap-2 p-3">
-								<span>{inv.email}</span>
-								<span class="flex items-center gap-2">
-									<span class="text-muted-foreground text-xs">
-										{formatDate(inv.created)} · {inv.status === 'accepted' && inv.accepted_at ? `accepted ${formatDate(inv.accepted_at)}` : `expires ${formatDate(inv.expires)}`}
-									</span>
-									<Badge variant={inviteStatusVariant(inv.status)}>{inv.status}</Badge>
-								</span>
-							</li>
-						{/each}
-					</ul>
-				</div>
-			{/if}
-
 			{#each users as u (u.id)}
 				<div
 					class="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3 text-sm"

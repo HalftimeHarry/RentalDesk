@@ -110,12 +110,14 @@ function collectionDefs(usersId, applicationsId, leasesId, inspectionsId, charge
 				{ name: 'type', type: 'select', required: true, maxSelect: 1, values: ['rent', 'deposit', 'late_fee', 'other'] },
 				{ name: 'description', type: 'text', required: true, max: 300 },
 				{ name: 'amount_cents', type: 'number', required: true, min: 0, onlyInt: true },
+				{ name: 'amount_pending', type: 'bool' },
 				{ name: 'due_date', type: 'date', required: true },
 				{ name: 'prorated', type: 'bool' },
 				// Drafts are management-only; published charges reach the tenant.
 				{ name: 'status', type: 'select', required: true, maxSelect: 1, values: ['draft', 'published'] },
 				{ name: 'period_start', type: 'date' },
 				{ name: 'period_end', type: 'date' },
+				{ name: 'preview_visible', type: 'bool' },
 				// Scheduled publication instant for draft bills (empty = unscheduled draft).
 				{ name: 'publish_at', type: 'date' },
 				// Frozen calculation details so later settings changes never rewrite history.

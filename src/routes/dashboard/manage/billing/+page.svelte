@@ -201,6 +201,21 @@
 	let paying = $state('');
 	let payOpen = $state(false);
 	let payCharge: Charge | null = $state(null);
+	let editChargeId = $state<string | null>(null);
+	let editChargeForm = $state({ description: '', amount: '' });
+
+	function startEditCharge(charge: Charge) {
+		editChargeId = charge.id;
+		editChargeForm = {
+			description: charge.description,
+			amount: (charge.amount_cents / 100).toFixed(2)
+		};
+	}
+
+	function cancelEditCharge() {
+		editChargeId = null;
+		editChargeForm = { description: '', amount: '' };
+	}
 
 	const methodLabels: Record<string, string> = {
 		zelle: 'Zelle',
@@ -796,6 +811,16 @@
 								· paid <span class="text-[#B91C1C]">{formatMoney(paid)}</span> · remaining <span class="text-[#B91C1C]">{formatMoney(remaining)}</span>
 							</span>
 						</p>
+						{#if c.status === 'draft'}
+							<div class="flex flex-wrap items-center gap-2 text-[11px] font-medium">
+								<span class={cn('rounded-full px-2 py-1', c.preview_visible ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-700')}>
+									{c.preview_visible ? 'Preview visible' : 'Preview hidden'}
+								</span>
+								{#if c.amount_pending}
+									<span class="rounded-full bg-amber-100 px-2 py-1 text-amber-800">Amount pending</span>
+								{/if}
+							</div>
+						{/if}
 						{#if data.billDocs[c.id]}
 							<a
 								class="text-ocean flex w-fit items-center gap-1 text-sm underline-offset-4 hover:underline"
@@ -808,7 +833,24 @@
 						{/if}
 
 						<div class="flex flex-wrap items-center gap-2">
+							<Button type="button" size="sm" variant="outline" class="min-h-12" onclick={() => startEditCharge(c)}>
+								Edit
+							</Button>
 							{#if c.status === 'draft'}
+								<form method="POST" action="?/togglePreview" use:enhance>
+									<input type="hidden" name="id" value={c.id} />
+									<input type="hidden" name="preview_visible" value={c.preview_visible ? '0' : '1'} />
+									<Button type="submit" size="sm" variant="outline" class="min-h-12">
+										{c.preview_visible ? 'Withdraw preview' : 'Show tenant preview'}
+									</Button>
+								</form>
+								<form method="POST" action="?/togglePendingAmount" use:enhance>
+									<input type="hidden" name="id" value={c.id} />
+									<input type="hidden" name="amount_pending" value={c.amount_pending ? '0' : '1'} />
+									<Button type="submit" size="sm" variant="outline" class="min-h-12">
+										{c.amount_pending ? 'Clear pending amount' : 'Mark pending amount'}
+									</Button>
+								</form>
 								<form method="POST" action="?/publishCharge" use:enhance>
 									<input type="hidden" name="id" value={c.id} />
 									<Button type="submit" size="sm" class="min-h-12">Publish</Button>
@@ -819,6 +861,29 @@
 								</form>
 							{/if}
 						</div>
+
+						{#if editChargeId === c.id}
+							<form method="POST" action="?/editCharge" use:enhance class="grid gap-3 rounded-lg border border-navy/15 bg-sky-50 p-3">
+								<input type="hidden" name="id" value={c.id} />
+								<div class="grid gap-2 sm:grid-cols-2">
+									<div class="flex flex-col gap-1.5">
+										<Label for={`edit-description-${c.id}`}>Description</Label>
+										<Input id={`edit-description-${c.id}`} name="description" bind:value={editChargeForm.description} />
+									</div>
+									<div class="flex flex-col gap-1.5">
+										<Label for={`edit-amount-${c.id}`}>Amount (USD)</Label>
+										<Input id={`edit-amount-${c.id}`} name="amount" inputmode="decimal" bind:value={editChargeForm.amount} />
+									</div>
+								</div>
+								<p class="text-muted-foreground text-xs">
+									Paid so far: {formatMoney(paid)}. New amount cannot fall below that total.
+								</p>
+								<div class="flex flex-wrap gap-2">
+									<Button type="submit" size="sm" class="min-h-10">Save changes</Button>
+									<Button type="button" size="sm" variant="outline" class="min-h-10" onclick={cancelEditCharge}>Cancel</Button>
+								</div>
+							</form>
+						{/if}
 
 						{#if c.status === 'published' && remaining > 0}
 							<Separator />
@@ -841,8 +906,8 @@
 				<!-- Simple view: itemized like the tenant account balance. -->
 				<ul class="flex flex-col">
 					{#each simpleRows as r (r.c.id)}
-						<li class="flex flex-wrap items-center gap-x-3 gap-y-2 py-2.5">
-							<span class="min-w-0 flex-1 text-sm">
+						<li class="simple-charge-row flex flex-wrap items-center gap-x-3 gap-y-2 py-2.5">
+							<span class="simple-charge-label min-w-0 flex-1 text-sm">
 								<span class="font-medium">{r.c.description}</span>
 								{#if r.c.period}
 									<span class="text-muted-foreground"> · {monthLabel(r.c.period)}</span>
@@ -851,32 +916,74 @@
 									<span class="ml-1.5 rounded bg-amber-200 px-1.5 py-0.5 align-middle text-[11px] font-semibold text-amber-900">Draft</span>
 								{/if}
 							</span>
-							<span class="shrink-0 text-sm font-medium tabular-nums text-[#B91C1C]">
+							<span class="simple-charge-amount shrink-0 text-sm font-medium tabular-nums text-[#B91C1C]">
 								{formatMoney(r.remaining)}
 							</span>
 							{#if r.c.status === 'draft'}
-								<span class="flex gap-1">
-									<form method="POST" action="?/publishCharge" use:enhance>
-										<input type="hidden" name="id" value={r.c.id} />
-										<Button type="submit" size="sm" class="min-h-9">Publish</Button>
-									</form>
-									<form method="POST" action="?/deleteDraft" use:enhance>
-										<input type="hidden" name="id" value={r.c.id} />
-										<Button type="submit" size="sm" variant="destructive" class="min-h-9">Delete</Button>
-									</form>
+								<span class="simple-charge-actions flex flex-wrap gap-1">
+									<Button type="button" size="sm" variant="outline" class="min-h-8 text-[11px] px-2.5" onclick={() => startEditCharge(r.c)}>Edit</Button>
+									{#if r.c.status === 'draft'}
+										<form method="POST" action="?/togglePreview" use:enhance>
+											<input type="hidden" name="id" value={r.c.id} />
+											<input type="hidden" name="preview_visible" value={r.c.preview_visible ? '0' : '1'} />
+											<Button type="submit" size="sm" variant="outline" class="min-h-8 text-[11px] px-2.5">
+												{r.c.preview_visible ? 'Hide' : 'Preview'}
+											</Button>
+										</form>
+										<form method="POST" action="?/togglePendingAmount" use:enhance>
+											<input type="hidden" name="id" value={r.c.id} />
+											<input type="hidden" name="amount_pending" value={r.c.amount_pending ? '0' : '1'} />
+											<Button type="submit" size="sm" variant="outline" class="min-h-8 text-[11px] px-2.5">
+												{r.c.amount_pending ? 'Clear pending' : 'Pending'}
+											</Button>
+										</form>
+										<form method="POST" action="?/publishCharge" use:enhance>
+											<input type="hidden" name="id" value={r.c.id} />
+											<Button type="submit" size="sm" class="min-h-8 text-[11px] px-2.5">Publish</Button>
+										</form>
+										<form method="POST" action="?/deleteDraft" use:enhance>
+											<input type="hidden" name="id" value={r.c.id} />
+											<Button type="submit" size="sm" variant="destructive" class="min-h-8 text-[11px] px-2.5">Delete</Button>
+										</form>
+									{/if}
 								</span>
 							{:else if r.remaining > 0}
-								<Button
-									size="sm"
-									variant="outline"
-									class="min-h-9"
-									onclick={() => {
-										payCharge = r.c;
-										payOpen = true;
-									}}
-								>
-									Record payment
-								</Button>
+								<div class="simple-charge-actions flex flex-wrap gap-1">
+									<Button type="button" size="sm" variant="outline" class="min-h-8 text-[11px] px-2.5" onclick={() => startEditCharge(r.c)}>Edit</Button>
+									<Button
+										size="sm"
+										variant="outline"
+										class="record-payment-btn min-h-8 text-[11px] px-2.5"
+										onclick={() => {
+											payCharge = r.c;
+											payOpen = true;
+										}}
+									>
+										Record payment
+									</Button>
+								</div>
+							{/if}
+							{#if editChargeId === r.c.id}
+								<form method="POST" action="?/editCharge" use:enhance class="mt-2 grid w-full gap-2 rounded-lg border border-navy/15 bg-sky-50 p-2">
+									<input type="hidden" name="id" value={r.c.id} />
+									<div class="grid gap-2 sm:grid-cols-2">
+										<div class="flex flex-col gap-1">
+											<Label for={`simple-edit-description-${r.c.id}`}>Description</Label>
+											<Input id={`simple-edit-description-${r.c.id}`} name="description" bind:value={editChargeForm.description} />
+										</div>
+										<div class="flex flex-col gap-1">
+											<Label for={`simple-edit-amount-${r.c.id}`}>Amount</Label>
+											<Input id={`simple-edit-amount-${r.c.id}`} name="amount" inputmode="decimal" bind:value={editChargeForm.amount} />
+										</div>
+									</div>
+									<p class="text-muted-foreground text-[11px]">
+										Paid so far: {formatMoney(paidFor(r.c))}. New amount cannot fall below that total.
+									</p>
+									<div class="flex flex-wrap gap-2">
+										<Button type="submit" size="sm" class="min-h-9">Save</Button>
+										<Button type="button" size="sm" variant="outline" class="min-h-9" onclick={cancelEditCharge}>Cancel</Button>
+									</div>
+								</form>
 							{/if}
 						</li>
 					{/each}
@@ -965,3 +1072,60 @@
 			/>
 	{/if}
 </div>
+
+<style>
+	.simple-charge-row {
+		min-width: 0;
+	}
+
+	.simple-charge-label {
+		min-width: 0;
+		word-break: break-word;
+	}
+
+	.simple-charge-actions {
+		align-items: center;
+	}
+
+	.record-payment-btn {
+		white-space: nowrap;
+	}
+
+	@media (max-width: 390px) {
+		.simple-charge-row {
+			flex-direction: column;
+			align-items: stretch;
+		}
+
+		.simple-charge-label,
+		.simple-charge-amount,
+		.simple-charge-actions {
+			width: 100%;
+		}
+
+		.simple-charge-amount {
+			display: block;
+			margin-top: 0.125rem;
+		}
+
+		.simple-charge-actions {
+			justify-content: flex-start;
+		}
+
+		.simple-charge-actions > * {
+			flex: 1 1 auto;
+		}
+
+		.simple-charge-actions form {
+			display: flex;
+		}
+
+		.simple-charge-actions :global(button),
+		.simple-charge-actions :global(form button) {
+			min-height: 2rem;
+			padding-inline: 0.625rem;
+			font-size: 0.75rem;
+			line-height: 1.25rem;
+		}
+	}
+</style>

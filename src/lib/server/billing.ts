@@ -2,6 +2,74 @@ import type { Charge, ChargeType, Lease, Payment } from '$lib/types';
 import type { Ledger } from '$lib/types';
 import type PocketBase from 'pocketbase';
 
+export interface TenantPreviewCharge {
+	id: string;
+	lease: string;
+	period: string;
+	type: ChargeType;
+	description: string;
+	due_date: string;
+	amount_cents?: number;
+	amount_pending: boolean;
+	publish_at: string;
+	preview_visible: boolean;
+}
+
+export function isTenantFacingDescription(value: string): boolean {
+	const trimmed = value.trim();
+	if (!trimmed) return false;
+	const lowered = trimmed.toLowerCase();
+	return !/(internal|private|staff|admin|note|notes)/i.test(lowered);
+}
+
+export function sanitizeTenantPreviewCharge(charge: Partial<Charge> | null | undefined): TenantPreviewCharge | null {
+	if (!charge || charge.status !== 'draft' || charge.preview_visible !== true) return null;
+	const description = typeof charge.description === 'string' ? charge.description.trim() : '';
+	if (!description || !isTenantFacingDescription(description)) return null;
+	const amountPending = !!charge.amount_pending;
+	const preview: TenantPreviewCharge = {
+		id: String(charge.id ?? ''),
+		lease: String(charge.lease ?? ''),
+		period: charge.period ?? '',
+		type: (charge.type ?? 'other') as ChargeType,
+		description,
+		due_date: charge.due_date ?? '',
+		amount_pending: amountPending,
+		publish_at: charge.publish_at ?? '',
+		preview_visible: true
+	};
+	if (!amountPending && typeof charge.amount_cents === 'number') {
+		preview.amount_cents = charge.amount_cents;
+	}
+	return preview;
+}
+
+export function filterTenantPreviewCharges(charges: Charge[], leaseId: string): TenantPreviewCharge[] {
+	return charges
+		.filter((c) => c.lease === leaseId && c.status === 'draft' && c.preview_visible === true)
+		.map((c) => sanitizeTenantPreviewCharge(c))
+		.filter((c): c is TenantPreviewCharge => !!c);
+}
+
+export function gatherPendingPublicationBlockers(charges: Charge[]): string[] {
+	return charges
+		.filter((c) => c.status === 'draft' && c.amount_pending)
+		.map((c) => c.description || 'Unnamed draft charge');
+}
+
+export function validatePublicationReadiness(charge: Charge): { ok: true } | { ok: false; message: string } {
+	if (charge.status !== 'draft') {
+		return { ok: false, message: 'Only draft charges can be published.' };
+	}
+	if (charge.amount_pending) {
+		return {
+			ok: false,
+			message: `"${charge.description || 'This charge'}" has an unknown amount and cannot be published.`
+		};
+	}
+	return { ok: true };
+}
+
 /**
  * Shared charge loading for a lease — used by BOTH the management billing page
  * and the tenant dashboard so both views read identical records in identical

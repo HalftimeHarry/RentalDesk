@@ -7,6 +7,7 @@ import { parseMoneyToCents } from '$lib/format';
 import { sendMail } from '$lib/server/mail';
 import { inviteAdminEmail } from '$lib/server/email-templates';
 import { appBaseUrl, AppUrlConfigError, isExplicitProduction } from '$lib/server/app-url';
+import { buildTenantInviteLink } from '$lib/server/invitations';
 import { PUBLIC_APP_URL } from '$app/env/public';
 import type {
 	Application,
@@ -668,6 +669,42 @@ export const actions: Actions = {
 		if (!id) return fail(400, { section: 'applications', message: 'Application is required.' });
 		await locals.pb.collection('applications').update(id, { screening_fee_confirmed: true });
 		return { section: 'applications', message: 'Screening fee marked as received.' };
+	},
+
+	inviteTenant: async (event) => {
+		if (!staffUser(event)) return staffOnly();
+		const { request, locals } = event;
+		const user = locals.user!;
+		const form = await request.formData();
+		const email = String(form.get('email') ?? '').trim().toLowerCase();
+		if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+			return fail(400, { section: 'team', message: 'A valid email address is required.' });
+		}
+		if (email === user.email.toLowerCase()) {
+			return fail(400, { section: 'team', message: 'You cannot invite yourself as a tenant.' });
+		}
+
+		let base: string;
+		try {
+			base = appBaseUrl(PUBLIC_APP_URL, { production: isExplicitProduction() });
+		} catch (e) {
+			if (e instanceof AppUrlConfigError) {
+				return fail(500, {
+					section: 'team',
+					message:
+						'Tenant invitations are unavailable: PUBLIC_APP_URL is missing or invalid for this environment. Ask the owner to configure it. No invitation was created.'
+				});
+			}
+			throw e;
+		}
+
+		const inviteUrl = buildTenantInviteLink(base, email);
+		return {
+			section: 'team',
+			message:
+				'Tenant registration link ready. The account starts as an Applicant only; approval, signed lease, and explicit lease activation still apply before any tenant access is granted.',
+			inviteUrl
+		};
 	},
 
 	// Invite a new Admin by email link. Both Owner and Admin may invite; the
