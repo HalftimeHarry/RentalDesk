@@ -118,11 +118,14 @@ See [AGENTS.md](./AGENTS.md) for the repository’s development policy.
 - **Fictional test data belongs in the isolated local PocketBase** — never in
   production. Production holds real records and must not be replaced with test
   data.
-- **Separate checkouts/caches prevent environment collisions**: run the
-  production-connected dev server from this checkout (`.env`) and the test app
-  from a separate copy with its own `.svelte-kit`/`node_modules/.vite` (SvelteKit
-  dev writes resolved env into shared generated files — one checkout cannot serve
-  both configurations).
+- **Separate checkouts/caches prevent environment collisions**: all active
+  development runs from an isolated copy (e.g. `/tmp/rentaldesk-test`) with its
+  own `.svelte-kit`/`node_modules/.vite`, pointed at the local PocketBase only
+  (SvelteKit dev writes resolved env into shared generated files — one checkout
+  cannot serve both configurations). A dev server is never pointed at
+  production; a dev-mode guard refuses any PocketBase target other than
+  `http://127.0.0.1:8090`. Production access is reserved for explicitly
+  authorized release or troubleshooting work (see AGENTS.md).
 - **Git/Netlify deployment does not migrate PocketBase.** Schema/rule changes go
   through the idempotent provisioning script and require reviewed migrations and
   production backups.
@@ -143,7 +146,7 @@ node --env-file=.env.test --env-file=.env.test.local scripts/setup-pocketbase.mj
 node --env-file=.env.test --env-file=.env.test.local scripts/seed-local-test.mjs    # fictional Owner/Admin/Applicant/Tenant + sample data (idempotent)
 
 # Test app on a separate copy, e.g. /tmp/rentaldesk-test (own caches), port 5174:
-PUBLIC_POCKETBASE_URL=http://127.0.0.1:8090 npm run dev -- --port 5174
+PUBLIC_POCKETBASE_URL=http://127.0.0.1:8090 npm run dev -- --port 5174 --strictPort
 ```
 
 `.env.test.local` (git-ignored) holds the local superuser and the shared
@@ -194,7 +197,9 @@ node --env-file=.env.test --env-file=.env.test.local scripts/verify-settings-per
    Creates/updates all collections with hardened API rules, seeds unit settings,
    and optionally creates the first Owner account (`OWNER_EMAIL`/`OWNER_PASSWORD`).
 
-4. **Develop**: `npm install && npm run dev`.
+4. **Develop**: `npm install`, then run the dev server from an isolated copy
+   against the local PocketBase on port 5174 with `--strictPort` (see “Local
+   test stack” above and AGENTS.md — development never targets production).
 
 ## Deploy (Netlify)
 

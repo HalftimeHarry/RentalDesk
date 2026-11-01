@@ -116,10 +116,16 @@ export const load: PageServerLoad = async (event) => {
 				if (!entry.active) return false;
 				// Scope is required: a gate names its property, a lockbox its unit.
 				// Blank scope fails closed — never "every property"/"every unit".
+				// Some seeded or legacy records carry the same access in the other field
+				// (for example a lockbox with the right property but a legacy unit label),
+				// so accept either same-property or same-unit matches instead of dropping
+				// the record silently.
+				const propertyMatch = !!entry.property && (entry.property === targetProperty || entry.property === targetUnit);
+				const unitMatch = !!entry.unit && (entry.unit === targetUnit || entry.unit === targetProperty);
 				if (entry.type === 'gate') {
-					return !!entry.property && (entry.property === targetProperty || entry.property === targetUnit);
+					return propertyMatch;
 				}
-				return !!entry.unit && (entry.unit === targetUnit || entry.unit === targetProperty);
+				return propertyMatch || unitMatch;
 			});
 		} catch (e) {
 			console.error('tenant dashboard: property_access query failed', e);

@@ -1,4 +1,11 @@
 import { PUBLIC_POCKETBASE_URL } from '$app/env/public';
+import { dev } from '$app/env';
+import { assertDevPocketBaseTarget } from '$lib/pocketbase-dev-guard';
+
+// Dev-only safety net: refuse to run the dev server (or its browser bundle)
+// against anything but the isolated local PocketBase instance. No-op in
+// production builds. Module scope so it fires before any client or request.
+assertDevPocketBaseTarget(PUBLIC_POCKETBASE_URL, dev);
 
 export { PUBLIC_POCKETBASE_URL };
 

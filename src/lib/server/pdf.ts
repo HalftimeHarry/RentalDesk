@@ -4,7 +4,7 @@
  * to ASCII so byte offsets stay exact.
  */
 
-import { LOGO_JPEG_BASE64, LOGO_JPEG_HEIGHT, LOGO_JPEG_WIDTH } from './assets/logo-jpeg';
+import { LOGO_JPEG_BASE64, LOGO_JPEG_HEIGHT, LOGO_JPEG_WIDTH } from './assets/logo-jpeg.ts';
 
 function clean(s: string): string {
 	return s
@@ -113,6 +113,196 @@ const SEAFOAM = '0.851 0.933 0.906';
 const NAVY = '0.086 0.196 0.310';
 const OCEAN = '0.027 0.349 0.522';
 const GOLD = '0.984 0.749 0.141';
+
+/** Approximate Helvetica 10pt string width (pt) — good enough for right-aligning amounts. */
+function textWidth(s: string, fontSize: number): number {
+	let em = 0;
+	for (const ch of s) {
+		if ('.,:;\'|!il'.includes(ch)) em += 0.278;
+		else if (' ()[]-"'.includes(ch)) em += 0.333;
+		else em += 0.556;
+	}
+	return em * fontSize;
+}
+
+/**
+ * Build the tenant payment-history PDF: branded masthead (logo, unit, address)
+ * on page one, tenant + generated-date meta lines, then a five-column table
+ * (Date, Method, Applies to, Note, Amount) in the given row order. Long notes
+ * wrap inside their column; the column header row repeats on every page; a
+ * bold total closes the table. Multi-page via the shared binary-safe writer.
+ */
+export function buildPaymentHistoryPdf(input: {
+	address?: string;
+	unitNumber?: string;
+	tenantName: string;
+	generated: string;
+	rows: { date: string; method: string; appliesTo: string; note: string; amount: string }[];
+	total: string;
+}): Uint8Array {
+	// Column layout (US Letter, 48pt margins).
+	const DATE_X = 48;
+	const METHOD_X = 120;
+	const APPLIES_X = 204;
+	const NOTE_X = 268;
+	const AMOUNT_RIGHT = 564;
+	const NOTE_CHARS = 38; // ~212pt of 10pt Helvetica
+	const LINE_H = 14;
+	const BOTTOM = 60;
+
+	const pages: string[] = [];
+	let parts: string[] = [];
+	let y = 0;
+
+	const tableHeader = () => {
+		parts.push(`${OCEAN} rg`);
+		for (const [x, label] of [
+			[DATE_X, 'Date'],
+			[METHOD_X, 'Method'],
+			[APPLIES_X, 'Applies to'],
+			[NOTE_X, 'Note']
+		] as [number, string][]) {
+			parts.push(`BT /F2 10 Tf ${x} ${y} Td (${escapePdfText(label)}) Tj ET`);
+		}
+		parts.push(`BT /F2 10 Tf ${AMOUNT_RIGHT - textWidth('Amount', 10)} ${y} Td (Amount) Tj ET`);
+		parts.push(`${GOLD} rg ${DATE_X} ${y - 5} ${AMOUNT_RIGHT - DATE_X} 2 re f`);
+		parts.push(`${NAVY} rg`);
+		y -= LINE_H + 6;
+	};
+
+	const newPage = () => {
+		if (parts.length > 0) pages.push(parts.join('\n'));
+		parts = [];
+		y = 752;
+		tableHeader();
+	};
+
+	// --- Page one: branded masthead -------------------------------------------
+	const bandTop = 792;
+	const bandBottom = 700;
+	const goldBarH = 6;
+	const logoH = 56;
+	const logoW = Math.round((logoH * LOGO_JPEG_WIDTH) / LOGO_JPEG_HEIGHT);
+	parts.push(
+		`${SEAFOAM} rg 0 ${bandBottom} 612 ${bandTop - bandBottom} re f`,
+		`${GOLD} rg 0 ${bandBottom - goldBarH} 612 ${goldBarH} re f`,
+		`q ${logoW} 0 0 ${logoH} 48 ${bandBottom + (bandTop - bandBottom - logoH) / 2} cm /Logo Do Q`
+	);
+	const bizX = 48 + logoW + 14;
+	let bizY = bandTop - 32;
+	// Identity block next to the logo: property address first, unit number in
+	// bold beneath it (payment-history layout only — notices keep their own).
+	parts.push(`${NAVY} rg BT /F1 11 Tf ${bizX} ${bizY} Td (${escapePdfText(clean(input.address || 'Rental Desk'))}) Tj ET`);
+	if (input.unitNumber) {
+		bizY -= 16;
+		parts.push(`${NAVY} rg BT /F2 11 Tf ${bizX} ${bizY} Td (Unit ${escapePdfText(clean(input.unitNumber))}) Tj ET`);
+	}
+	// Document title + meta lines below the masthead (the logo artwork fills the
+	// band's lower-left corner, so the title sits under the gold bar instead).
+	let y2 = bandBottom - goldBarH - 30;
+	parts.push(`${OCEAN} rg BT /F2 15 Tf 48 ${y2} Td (Payment history) Tj ET`);
+	parts.push(`${NAVY} rg`);
+	y = y2 - 22;
+	for (const meta of [`Tenant: ${input.tenantName}`, `Generated: ${input.generated}`]) {
+		parts.push(`BT /F1 10 Tf 48 ${y} Td (${escapePdfText(clean(meta))}) Tj ET`);
+		y -= LINE_H;
+	}
+	y -= 8;
+	tableHeader();
+
+	// --- Rows ------------------------------------------------------------------
+	for (const row of input.rows) {
+		const noteLines = wrap(clean(row.note), NOTE_CHARS);
+		const rowH = LINE_H * Math.max(1, noteLines.length);
+		if (y - rowH < BOTTOM) newPage();
+		parts.push(`BT /F1 10 Tf ${DATE_X} ${y} Td (${escapePdfText(clean(row.date))}) Tj ET`);
+		parts.push(`BT /F1 10 Tf ${METHOD_X} ${y} Td (${escapePdfText(clean(row.method))}) Tj ET`);
+		parts.push(`BT /F1 10 Tf ${APPLIES_X} ${y} Td (${escapePdfText(clean(row.appliesTo))}) Tj ET`);
+		let noteY = y;
+		for (const line of noteLines) {
+			if (line !== '') parts.push(`BT /F1 10 Tf ${NOTE_X} ${noteY} Td (${escapePdfText(line)}) Tj ET`);
+			noteY -= LINE_H;
+		}
+		const amount = clean(row.amount);
+		parts.push(`BT /F1 10 Tf ${AMOUNT_RIGHT - textWidth(amount, 10)} ${y} Td (${escapePdfText(amount)}) Tj ET`);
+		y -= rowH + 4;
+	}
+
+	// --- Total -----------------------------------------------------------------
+	if (y - LINE_H - 10 < BOTTOM) newPage();
+	parts.push(`${GOLD} rg ${DATE_X} ${y + 8} ${AMOUNT_RIGHT - DATE_X} 1 re f`, `${NAVY} rg`);
+	const totalAmt = clean(input.total);
+	parts.push(`BT /F2 11 Tf ${DATE_X} ${y - 6} Td (Total payments) Tj ET`);
+	parts.push(`BT /F2 11 Tf ${AMOUNT_RIGHT - textWidth(totalAmt, 11)} ${y - 6} Td (${escapePdfText(totalAmt)}) Tj ET`);
+	pages.push(parts.join('\n'));
+
+	return assembleBrandedPdf(pages);
+}
+
+/**
+ * Assemble a multi-page PDF from per-page content streams, sharing the two
+ * Helvetica fonts and the embedded JPEG logo. Binary-safe (byte-exact xref).
+ */
+function assembleBrandedPdf(pageContents: string[]): Uint8Array {
+	const logoBytes = Uint8Array.from(atob(LOGO_JPEG_BASE64), (c) => c.charCodeAt(0));
+	const enc = new TextEncoder();
+	const chunks: Uint8Array[] = [];
+	let length = 0;
+	const push = (data: string | Uint8Array) => {
+		const bytes = typeof data === 'string' ? enc.encode(data) : data;
+		chunks.push(bytes);
+		length += bytes.length;
+	};
+
+	// Object layout: 1 catalog, 2 pages, 3 F1, 4 F2, 5 logo, then for each page
+	// i: page object (6 + 2i) and its content stream (7 + 2i).
+	const pageObjNums = pageContents.map((_, i) => 6 + 2 * i);
+
+	push('%PDF-1.4\n');
+	const offsets: number[] = [];
+	const beginObj = (n: number) => {
+		offsets.push(length);
+		push(`${n} 0 obj\n`);
+	};
+	const endObj = () => push('\nendobj\n');
+
+	beginObj(1); push('<< /Type /Catalog /Pages 2 0 R >>'); endObj();
+	beginObj(2);
+	push(`<< /Type /Pages /Kids [${pageObjNums.map((n) => `${n} 0 R`).join(' ')}] /Count ${pageContents.length} >>`);
+	endObj();
+	beginObj(3); push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'); endObj();
+	beginObj(4); push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>'); endObj();
+	beginObj(5);
+	push(
+		`<< /Type /XObject /Subtype /Image /Width ${LOGO_JPEG_WIDTH} /Height ${LOGO_JPEG_HEIGHT} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${logoBytes.length} >>\nstream\n`
+	);
+	push(logoBytes);
+	push('\nendstream');
+	endObj();
+	pageContents.forEach((content, i) => {
+		beginObj(6 + 2 * i);
+		push(
+			`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> /XObject << /Logo 5 0 R >> >> /Contents ${7 + 2 * i} 0 R >>`
+		);
+		endObj();
+		beginObj(7 + 2 * i);
+		push(`<< /Length ${enc.encode(content).length} >>\nstream\n${content}\nendstream`);
+		endObj();
+	});
+
+	const xrefPos = length;
+	push(`xref\n0 ${offsets.length + 1}\n0000000000 65535 f \n`);
+	for (const off of offsets) push(`${String(off).padStart(10, '0')} 00000 n \n`);
+	push(`trailer\n<< /Size ${offsets.length + 1} /Root 1 0 R >>\nstartxref\n${xrefPos}\n%%EOF`);
+
+	const out = new Uint8Array(length);
+	let pos = 0;
+	for (const c of chunks) {
+		out.set(c, pos);
+		pos += c.length;
+	}
+	return out;
+}
 
 /**
  * Build a one-page branded PDF matching the site's print styling: seafoam

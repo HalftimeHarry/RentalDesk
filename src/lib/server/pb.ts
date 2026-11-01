@@ -1,8 +1,12 @@
 import PocketBase from 'pocketbase';
+import { dev } from '$app/env';
 import { POCKETBASE_URL } from '$lib/files';
+import { assertDevPocketBaseTarget } from '$lib/pocketbase-dev-guard';
 
 /** Create a fresh PocketBase client (one per request on the server). */
 export function createPocketBase(): PocketBase {
+	// Dev-only: refuse any target other than the local test instance.
+	assertDevPocketBaseTarget(POCKETBASE_URL, dev);
 	return new PocketBase(POCKETBASE_URL);
 }
 
