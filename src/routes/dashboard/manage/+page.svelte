@@ -219,7 +219,7 @@
 						hasPending={!!data.pendingLease}
 					/>
 
-					<SettingsCard settings={data.settings} propertyAccess={data.propertyAccess} {form} />
+					<SettingsCard settings={data.settings} propertyAccess={data.propertyAccess} helpVideos={data.helpVideos} {form} />
 				</div>
 			</div>
 		</details>
