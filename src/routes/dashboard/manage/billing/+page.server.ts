@@ -3,7 +3,7 @@ import type { PageServerLoad } from './$types';
 import { requireRole } from '$lib/server/guard';
 import { getDefaultLease } from '$lib/server/lease';
 import { computeRentCharge } from '$lib/billing';
-import { getLeaseCharges, summarizeLedger } from '$lib/server/billing';
+import { gatherPendingPublicationBlockers, getLeaseCharges, summarizeLedger, validatePublicationReadiness } from '$lib/server/billing';
 import { isWithinWindow, publishWindow, laWallToUtcIso, formatLaDateTime } from '$lib/schedule';
 import { parseMoneyToCents } from '$lib/format';
 import { docUrl } from '$lib/files';
@@ -155,6 +155,38 @@ async function overlapWarning(pb: App.Locals['pb'], leaseId: string, start: stri
 	}
 }
 
+function canManageChargeEdits(role?: string | null): boolean {
+	return role === 'owner' || role === 'admin';
+}
+
+function validateChargeEdit(input: {
+	description: string;
+	amountCents: number | null;
+	paidCents: number;
+}): { ok: true; description: string; amountCents: number } | { ok: false; message: string } {
+	const description = input.description.trim();
+	if (!description) return { ok: false, message: 'Description is required.' };
+	if (input.amountCents === null || !Number.isFinite(input.amountCents) || input.amountCents <= 0) {
+		return { ok: false, message: 'Enter a valid amount.' };
+	}
+	if (input.amountCents < input.paidCents) {
+		return {
+			ok: false,
+			message: `Amount cannot be lower than $${(input.paidCents / 100).toFixed(2)} already recorded.`
+		};
+	}
+	return { ok: true, description, amountCents: input.amountCents };
+}
+
+function validateMonthPublicationBlockers(drafts: Charge[]): { ok: true } | { ok: false; message: string } {
+	const blockers = gatherPendingPublicationBlockers(drafts);
+	if (blockers.length === 0) return { ok: true };
+	return {
+		ok: false,
+		message: `Pending amount${blockers.length === 1 ? '' : 's'} prevent publication: ${blockers.join(', ')}.`
+	};
+}
+
 export const actions: Actions = {
 	createCharge: async ({ request, locals }) => {
 		const user = locals.user!;
@@ -264,6 +296,8 @@ export const actions: Actions = {
 				period_end: result.period_end,
 				prorated: true,
 				status: publish ? 'published' : 'draft',
+				preview_visible: false,
+				amount_pending: false,
 				calc
 			};
 		} else if (kind === 'deposit') {
@@ -296,6 +330,8 @@ export const actions: Actions = {
 				period_end: '',
 				prorated: false,
 				status: publish ? 'published' : 'draft',
+				preview_visible: false,
+				amount_pending: false,
 				calc: null
 			};
 		} else if (kind === 'other') {
@@ -326,6 +362,8 @@ export const actions: Actions = {
 				period_end: '',
 				prorated: false,
 				status: publish ? 'published' : 'draft',
+				preview_visible: false,
+				amount_pending: false,
 				calc: null
 			};
 		} else {
@@ -353,6 +391,8 @@ export const actions: Actions = {
 				period_end: '',
 				prorated: false,
 				status: publish ? 'published' : 'draft',
+				preview_visible: false,
+				amount_pending: false,
 				calc: null
 			};
 		}
@@ -424,11 +464,95 @@ export const actions: Actions = {
 		};
 	},
 
+	editCharge: async ({ request, locals }) => {
+		const user = locals.user;
+		if (!canManageChargeEdits(user?.role)) {
+			return fail(403, { section: 'charges', message: 'Management-only action.' });
+		}
+		const form = await request.formData();
+		const id = String(form.get('id') ?? '');
+		const description = String(form.get('description') ?? '').trim();
+		const amount = parseMoneyToCents(form.get('amount'));
+		if (!id) {
+			return fail(400, { section: 'charges', message: 'Charge not found.' });
+		}
+		let charge: Charge;
+		try {
+			charge = (await locals.pb.collection('charges').getOne(id)) as unknown as Charge;
+		} catch {
+			return fail(404, { section: 'charges', message: 'Charge not found.' });
+		}
+		const paidCents = (await locals.pb
+			.collection('payments')
+			.getFullList({ filter: `charge = "${id}"` })
+			.then((rows) => (rows as unknown as Payment[]).reduce((s, p) => s + p.amount_cents, 0))
+			.catch(() => 0));
+		const valid = validateChargeEdit({ description, amountCents: amount, paidCents });
+		if (!valid.ok) {
+			return fail(400, { section: `edit-${id}`, message: valid.message });
+		}
+		try {
+			await locals.pb.collection('charges').update(id, {
+				description: valid.description,
+				amount_cents: valid.amountCents,
+				amount_pending: false
+			});
+		} catch (e) {
+			return fail(500, { section: `edit-${id}`, message: `Update failed: ${pbError(e)}` });
+		}
+		return { section: 'charges', message: 'Charge updated.' };
+	},
+
+	togglePreview: async ({ request, locals }) => {
+		const form = await request.formData();
+		const id = String(form.get('id') ?? '');
+		const visible = form.get('preview_visible') === '1';
+		if (!id) return fail(400, { section: 'charges', message: 'Charge not found.' });
+		try {
+			const charge = await locals.pb.collection('charges').getOne(id) as unknown as Charge;
+			if (charge.status !== 'draft') {
+				return fail(400, { section: 'charges', message: 'Only draft charges can show a tenant preview.' });
+			}
+			await locals.pb.collection('charges').update(id, { preview_visible: visible });
+		} catch (e) {
+			return fail(500, { section: 'charges', message: `Preview update failed: ${pbError(e)}` });
+		}
+		return {
+			section: 'charges',
+			message: visible ? 'Tenant preview enabled.' : 'Tenant preview withdrawn.'
+		};
+	},
+
+	togglePendingAmount: async ({ request, locals }) => {
+		const form = await request.formData();
+		const id = String(form.get('id') ?? '');
+		const pending = form.get('amount_pending') === '1';
+		if (!id) return fail(400, { section: 'charges', message: 'Charge not found.' });
+		try {
+			const charge = await locals.pb.collection('charges').getOne(id) as unknown as Charge;
+			if (charge.status !== 'draft') {
+				return fail(400, { section: 'charges', message: 'Only draft charges can mark an amount as pending.' });
+			}
+			await locals.pb.collection('charges').update(id, { amount_pending: pending });
+		} catch (e) {
+			return fail(500, { section: 'charges', message: `Amount status update failed: ${pbError(e)}` });
+		}
+		return {
+			section: 'charges',
+			message: pending ? 'Amount marked as pending — publication is blocked until a real amount is entered.' : 'Amount is no longer pending.'
+		};
+	},
+
 	publishCharge: async ({ request, locals }) => {
 		const form = await request.formData();
 		const id = String(form.get('id') ?? '');
 		try {
-			await locals.pb.collection('charges').update(id, { status: 'published' });
+			const charge = await locals.pb.collection('charges').getOne(id) as unknown as Charge;
+			const readiness = validatePublicationReadiness(charge);
+			if (!readiness.ok) {
+				return fail(400, { section: 'charges', message: readiness.message });
+			}
+			await locals.pb.collection('charges').update(id, { status: 'published', preview_visible: false });
 			const fresh = await locals.pb.collection('charges').getOne(id);
 			if (fresh.status !== 'published') {
 				return fail(500, { section: 'charges', message: 'Publish could not be confirmed.' });
@@ -605,6 +729,10 @@ export const actions: Actions = {
 		if (drafts.length === 0) {
 			return fail(400, { section: `sched-${month}`, message: 'No draft charges for that month.' });
 		}
+		const blockers = validateMonthPublicationBlockers(drafts);
+		if (!blockers.ok) {
+			return fail(400, { section: `sched-${month}`, message: blockers.message });
+		}
 		for (const d of drafts) {
 			await locals.pb.collection('charges').update(d.id, { publish_at: publishAt });
 		}
@@ -628,8 +756,12 @@ export const actions: Actions = {
 		if (drafts.length === 0) {
 			return fail(400, { section: `sched-${month}`, message: 'No draft charges for that month.' });
 		}
+		const blockers = validateMonthPublicationBlockers(drafts);
+		if (!blockers.ok) {
+			return fail(400, { section: `sched-${month}`, message: blockers.message });
+		}
 		for (const d of drafts) {
-			await locals.pb.collection('charges').update(d.id, { status: 'published', publish_at: '' });
+			await locals.pb.collection('charges').update(d.id, { status: 'published', publish_at: '', preview_visible: false });
 		}
 		return {
 			section: `sched-${month}`,

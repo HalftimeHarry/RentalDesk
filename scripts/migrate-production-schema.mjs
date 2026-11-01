@@ -81,6 +81,31 @@ const PROPERTY_ACCESS_RULE = `@request.auth.id != "" && (@request.auth.role = "a
 
 const defs = [
 	{
+		name: 'charges',
+		type: 'base',
+		fields: [
+			{ name: 'lease', type: 'relation', required: true, collectionId: byName.leases.id, maxSelect: 1, cascadeDelete: true },
+			{ name: 'period', type: 'text', max: 7 },
+			{ name: 'type', type: 'select', required: true, maxSelect: 1, values: ['rent', 'deposit', 'late_fee', 'other'] },
+			{ name: 'description', type: 'text', required: true, max: 300 },
+			{ name: 'amount_cents', type: 'number', required: true, min: 0, onlyInt: true },
+			{ name: 'amount_pending', type: 'bool' },
+			{ name: 'due_date', type: 'date', required: true },
+			{ name: 'prorated', type: 'bool' },
+			{ name: 'status', type: 'select', required: true, maxSelect: 1, values: ['draft', 'published'] },
+			{ name: 'period_start', type: 'date' },
+			{ name: 'period_end', type: 'date' },
+			{ name: 'preview_visible', type: 'bool' },
+			{ name: 'publish_at', type: 'date' },
+			{ name: 'calc', type: 'json', maxSize: 1000000 }
+		],
+		listRule: `(lease.tenant = @request.auth.id && status = "published") || ${STAFF}`,
+		viewRule: `(lease.tenant = @request.auth.id && status = "published") || ${STAFF}`,
+		createRule: STAFF,
+		updateRule: STAFF,
+		deleteRule: STAFF
+	},
+	{
 		name: 'help_videos',
 		type: 'base',
 		fields: [

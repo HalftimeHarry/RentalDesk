@@ -1,4 +1,5 @@
 import type PocketBase from 'pocketbase';
+import { validatePublicationReadiness } from './billing.ts';
 
 /**
  * Server-side bill publisher. Releases draft charges whose scheduled
@@ -18,11 +19,13 @@ export async function publishDueBills(pb: PocketBase, now = new Date()): Promise
 		.getFullList({
 			filter: `status = "draft" && publish_at != "" && publish_at <= "${nowStr}"`,
 			sort: 'lease,period,created'
-		})) as { id: string; lease: string; period?: string }[];
+		})) as { id: string; lease: string; period?: string; amount_pending?: boolean; description?: string; status?: string }[];
 	const byBill = new Map<string, number>();
 	let published = 0;
 	for (const c of due) {
-		await pb.collection('charges').update(c.id, { status: 'published', publish_at: '' });
+		const readiness = validatePublicationReadiness(c as any);
+		if (!readiness.ok) continue;
+		await pb.collection('charges').update(c.id, { status: 'published', publish_at: '', preview_visible: false });
 		published++;
 		const key = `${c.lease} · ${c.period || ''}`;
 		byBill.set(key, (byBill.get(key) ?? 0) + 1);

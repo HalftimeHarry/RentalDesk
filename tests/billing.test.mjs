@@ -19,8 +19,13 @@ import {
 	planLeaseCharges,
 	summarizeLedger,
 	daysInMonth,
-	leaseMeetsMinimum
+	leaseMeetsMinimum,
+	sanitizeTenantPreviewCharge,
+	filterTenantPreviewCharges,
+	gatherPendingPublicationBlockers,
+	validatePublicationReadiness
 } from '../src/lib/server/billing.ts';
+import { publishDueBills } from '../src/lib/server/publish.ts';
 import {
 	billStatus,
 	groupChargesByMonth,
@@ -189,6 +194,32 @@ test('monthly statements allocate payments to their billed charge', () => {
 	);
 });
 
+test('statement selection uses the exact requested month only', () => {
+	const charges = [
+		charge({ id: 'c1', period: '2026-10', amount_cents: 1_000 }),
+		charge({ id: 'c2', period: '2026-11', amount_cents: 2_000 }),
+		charge({ id: 'c3', period: '2026-11', amount_cents: 3_000 })
+	];
+	const payments = [
+		payment({ id: 'p1', charge: 'c2', amount_cents: 250 }),
+		payment({ id: 'p2', charge: 'c3', amount_cents: 500 })
+	];
+	const statements = groupChargesByMonth(charges, payments);
+	const selected = statements.find((s) => s.month === '2026-11');
+	assert.ok(selected);
+	assert.equal(selected.chargedCents, 5_000);
+	assert.equal(selected.paidCents, 750);
+	assert.equal(selected.remainingCents, 4_250);
+	assert.deepEqual(
+		selected.charges.map((c) => c.id),
+		['c2', 'c3']
+	);
+	assert.equal(
+		statements.find((s) => s.month === '2026-10')?.chargedCents,
+		1_000
+	);
+});
+
 // ---- deposit separation ------------------------------------------------------
 
 test('security deposit stays out of the rent ledger', () => {
@@ -267,6 +298,97 @@ test('draft deposits are excluded from the itemized deposit list', () => {
 
 test('a draft bill reports draft status even against payments', () => {
 	assert.equal(billStatus(charge({ status: 'draft' }), RENT), 'draft');
+});
+
+test('tenant preview sanitizes only approved draft fields and omits internal notes', () => {
+	const charges = [
+		charge({
+			id: 'p1',
+			lease: 'lease-1',
+			status: 'draft',
+			preview_visible: true,
+			period: '2026-11',
+			type: 'rent',
+			description: 'Rent — November 2026',
+			amount_cents: RENT,
+			publish_at: '2026-11-20T00:00:00.000Z',
+			amount_pending: false
+		}),
+		charge({
+			id: 'p2',
+			lease: 'lease-1',
+			status: 'draft',
+			preview_visible: true,
+			description: 'Private staff notes do not reach tenants',
+			type: 'other',
+			amount_cents: 25_000,
+			amount_pending: false
+		}),
+		charge({
+			id: 'p3',
+			lease: 'lease-2',
+			status: 'draft',
+			preview_visible: true,
+			description: 'Other tenant preview',
+			type: 'other',
+			amount_cents: 10_000,
+			amount_pending: false
+		})
+	];
+	const preview = filterTenantPreviewCharges(charges, 'lease-1');
+	assert.deepEqual(preview.map((c) => c.id), ['p1']);
+	assert.equal(preview[0].amount_pending, false);
+	assert.equal(preview[0].amount_cents, RENT);
+	assert.equal(sanitizeTenantPreviewCharge(charges[1]), null);
+});
+
+test('pending amounts block publication and remain hidden from tenant preview amounts', () => {
+	const chargeRecord = charge({
+		id: 'p4',
+		lease: 'lease-1',
+		status: 'draft',
+		preview_visible: true,
+		description: 'AT&T reimbursement — service Nov 2026',
+		type: 'other',
+		amount_cents: 1500,
+		amount_pending: true,
+		publish_at: '2026-11-22T00:00:00.000Z'
+	});
+	const preview = sanitizeTenantPreviewCharge(chargeRecord);
+	assert.ok(preview);
+	assert.equal(preview.amount_pending, true);
+	assert.equal(preview.amount_cents, undefined);
+	assert.equal(validatePublicationReadiness(chargeRecord).ok, false);
+	assert.match(validatePublicationReadiness(chargeRecord).message, /unknown amount/i);
+	assert.deepEqual(gatherPendingPublicationBlockers([chargeRecord]), ['AT&T reimbursement — service Nov 2026']);
+});
+
+test('scheduled publisher skips pending charges and keeps preview visibility off after publish', async () => {
+	const due = {
+		id: 'p5',
+		lease: 'lease-1',
+		period: '2026-11',
+		status: 'draft',
+		preview_visible: true,
+		description: 'Pending scheduled charge',
+		type: 'other',
+		amount_cents: 1500,
+		amount_pending: true,
+		publish_at: '2020-01-01T00:00:00.000Z'
+	};
+	const updates = [];
+	const pb = {
+		collection: () => ({
+			getFullList: async () => [due],
+			update: async (id, payload) => {
+				updates.push({ id, payload });
+				return { id, ...payload };
+			}
+		})
+	};
+	const result = await publishDueBills(pb);
+	assert.equal(result.published, 0);
+	assert.deepEqual(updates, []);
 });
 
 // ---- adjacent invariant ------------------------------------------------------

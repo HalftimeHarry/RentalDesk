@@ -389,6 +389,20 @@
 	function billDocFor(c: Charge): DocRecord | undefined {
 		return data.documents.find((d) => d.charge === c.id && d.kind === 'bill');
 	}
+	function formatPacificDate(iso: string | null | undefined): string {
+		if (!iso) return 'Publication date not set';
+		const d = new Date(iso);
+		if (Number.isNaN(d.getTime())) return 'Publication date not set';
+		return d.toLocaleString('en-US', {
+			timeZone: 'America/Los_Angeles',
+			month: 'short',
+			day: 'numeric',
+			year: 'numeric',
+			hour: 'numeric',
+			minute: '2-digit',
+			timeZoneName: 'short'
+		});
+	}
 	const methodLabels: Record<string, string> = {
 		cash: 'Cash',
 		check: 'Check',
@@ -511,6 +525,39 @@
 			</CardContent>
 		</Card>
 	{:else}
+		{#if data.previewCharges.length > 0}
+			<Card>
+				<CardHeader class="pb-3">
+					<CardTitle class="flex items-center gap-2">
+						<Receipt class="text-ocean size-5" /> Upcoming bill — not yet payable
+					</CardTitle>
+					<CardDescription>Provisional charges are shown for tenant review only and do not affect the official balance due.</CardDescription>
+				</CardHeader>
+				<CardContent class="space-y-3">
+					{#each data.previewCharges as charge (charge.id)}
+						<div class="rounded-xl border border-amber-200 bg-amber-50 p-3">
+							<div class="flex flex-wrap items-center justify-between gap-3">
+								<div class="min-w-0 flex-1">
+									<p class="font-medium text-slate-900">{charge.description}</p>
+									<p class="text-xs text-slate-600">
+										{charge.period ? monthLabel(charge.period) : 'Billing month pending'}
+									</p>
+								</div>
+								<div class="shrink-0 text-right">
+									<p class="text-sm font-semibold text-[#B91C1C]">
+										{charge.amount_pending ? 'Amount pending' : formatMoney(charge.amount_cents ?? 0)}
+									</p>
+								</div>
+							</div>
+							<p class="mt-2 text-xs text-slate-700">
+								Expected publication date: {formatPacificDate(charge.publish_at)} (Pacific time)
+							</p>
+							<p class="mt-1 text-[11px] italic text-slate-600">Amounts may change until published.</p>
+						</div>
+					{/each}
+				</CardContent>
+			</Card>
+		{/if}
 		<!-- Account balance -->
 		<Card>
 			<CardHeader class="pb-2">

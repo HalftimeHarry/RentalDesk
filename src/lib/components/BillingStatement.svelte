@@ -9,6 +9,7 @@
 		CardHeader,
 		CardTitle
 	} from '$lib/components/ui/card';
+	import * as Dialog from '$lib/components/ui/dialog';
 	import { Input } from '$lib/components/ui/input';
 	import { formatLaDateTime, publishWindow } from '$lib/schedule';
 	import { formatDate, formatMoney } from '$lib/format';
@@ -39,8 +40,22 @@
 		monthPayHref?: (month: string) => string;
 	} = $props();
 
-	const statements = $derived(groupChargesByMonth(charges, payments));
+	const statements = $derived(
+		[...groupChargesByMonth(charges, payments)].sort((a, b) => b.month.localeCompare(a.month))
+	);
 	const deposits = $derived(depositCharges(charges));
+	let statementDialogOpen = $state(false);
+	let statementDialogMonth = $state('');
+	const activeStatement = $derived(
+		statementDialogMonth ? statements.find((s) => s.month === statementDialogMonth) ?? null : null
+	);
+	$effect(() => {
+		if (!statementDialogOpen) statementDialogMonth = '';
+	});
+	function openStatementDialog(month: string) {
+		statementDialogMonth = month;
+		statementDialogOpen = true;
+	}
 
 	// Draft bills: draft charges grouped by billing month (deposits excluded —
 	// they publish individually from the charges list).
@@ -151,119 +166,191 @@
 	</Card>
 {/if}
 
-{#each statements as st (st.month)}
+{#if statements.length > 0}
 	<Card>
-		<CardHeader>
-			<div class="flex flex-wrap items-center justify-between gap-2">
+		<CardHeader class="pb-0">
+			<div class="flex items-center justify-between gap-2">
 				<CardTitle class="flex items-center gap-2">
-					<CalendarDays class="text-ocean size-5" /> {st.label} statement
+					<CalendarDays class="text-ocean size-5" /> Monthly statements
 				</CardTitle>
-				<div class="flex flex-wrap gap-2">
-					{#if printHref}
-						<Button href={printHref(st.month)} target="_blank" variant="outline" size="sm">
-							<Printer class="size-4" /> Print / PDF
-						</Button>
-					{/if}
-					{#if canManage && st.remainingCents > 0}
-						<!-- Styled to match the dashboard's "Manage bills" button. -->
-						{#if monthPayHref}
-							<Button
-								href={monthPayHref(st.month)}
-								variant="outline"
-								class="min-h-12 w-full border-orange-200 bg-orange-100 text-orange-900 shadow-sm hover:bg-orange-200 sm:w-auto"
-							>
-								<Receipt class="size-4" /> Record monthly payment
-							</Button>
-						{:else}
-							<Button
-								variant="outline"
-								class="min-h-12 w-full border-orange-200 bg-orange-100 text-orange-900 shadow-sm hover:bg-orange-200 sm:w-auto"
-								onclick={() => onMonthPay?.(st.month)}
-							>
-								<Receipt class="size-4" /> Record monthly payment
-							</Button>
-						{/if}
-					{/if}
-				</div>
 			</div>
-			<CardDescription>
-				Charged {formatMoney(st.chargedCents)} · paid {formatMoney(st.paidCents)} · remaining{' '}
-				{formatMoney(st.remainingCents)}
-			</CardDescription>
 		</CardHeader>
-		<CardContent class="flex flex-col gap-3">
-			<ul class="divide-y rounded-md border text-sm">
-				{#each st.charges as c (c.id)}
-					{@const paid = paidFor(c.id)}
-					<li class="flex flex-col gap-1 p-3">
-						<div class="flex flex-wrap items-center justify-between gap-2">
-							<p class="font-medium">
-								<span class="bg-muted text-muted-foreground mr-1.5 inline-block rounded px-1.5 py-0.5 align-middle text-[11px]">
-									{typeLabels[c.type] ?? c.type}
-								</span>
-								{c.description}
-							</p>
-							<span class="text-muted-foreground text-xs">
-								{statusLabels[billStatus(c, paid)]}
-							</span>
-						</div>
-						<div class="text-muted-foreground flex flex-wrap gap-x-3 text-xs">
-							<span>Due {formatDate(c.due_date)}</span>
-							<span>Amount {formatMoney(c.amount_cents)}</span>
-							<span>Paid {formatMoney(paid)}</span>
-							<span>Remaining {formatMoney(Math.max(0, c.amount_cents - paid))}</span>
-							{#if billDocs[c.id]}
-								<a
-									class="text-ocean flex items-center gap-1 underline-offset-4 hover:underline"
-									href={billDocs[c.id].url}
-									target="_blank"
-									rel="noreferrer"
-								>
-									<FileText class="size-3" /> Bill attachment
-								</a>
-							{/if}
-						</div>
-					</li>
-				{/each}
-				<li class="bg-muted/50 flex items-center justify-between gap-2 p-3 text-sm font-medium">
-					<span>Statement total</span>
-					<span>
-						{formatMoney(st.chargedCents)} · remaining {formatMoney(st.remainingCents)}
-					</span>
-				</li>
-			</ul>
-			{#if st.payments.length > 0}
-				<p class="text-muted-foreground text-xs">
-					Payments applied:{' '}
-					{st.payments
-						.map(
-							(p) =>
-								`${formatMoney(p.amount_cents)} ${p.date ? formatDate(p.date) : ''}${p.method ? ` (${methodLabels[p.method] ?? p.method})` : ''}`
-						)
-						.join(' · ')}
-				</p>
-			{/if}
-			{@const dm = draftMonths.find((d) => d.month === st.month)}
-			{#if dm}
-				<div class="rounded-lg border border-dashed border-amber-300 p-3 text-sm">
-					<p class="font-medium">
-						<span class="rounded bg-amber-200 px-1.5 py-0.5 text-[11px] font-semibold text-amber-900">
-							Draft
-						</span>
-						{dm.charges.length} draft charge{dm.charges.length === 1 ? '' : 's'} ({formatMoney(dm.totalCents)})
-						not visible to the tenant
-					</p>
-					<ul class="text-muted-foreground mt-1 text-xs">
-						{#each dm.charges as d (d.id)}
-							<li>{d.description} — {formatMoney(d.amount_cents)}</li>
+		<CardContent class="p-0 sm:p-0">
+			<div class="overflow-x-auto">
+				<table class="min-w-full text-left text-sm">
+					<thead class="bg-muted/60 text-muted-foreground text-xs uppercase tracking-wide">
+						<tr>
+							<th class="px-3 py-2.5 font-medium">Month</th>
+							<th class="px-3 py-2.5 font-medium">Charged</th>
+							<th class="px-3 py-2.5 font-medium">Paid</th>
+							<th class="px-3 py-2.5 font-medium">Remaining</th>
+							<th class="px-3 py-2.5 font-medium text-right">Action</th>
+						</tr>
+					</thead>
+					<tbody>
+						{#each statements as st (st.month)}
+							<tr class="border-t align-top">
+								<td class="px-3 py-3">
+									<button
+										type="button"
+										class="text-left font-medium text-navy underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0f766e]/60 focus-visible:ring-offset-2"
+										aria-haspopup="dialog"
+										aria-expanded={statementDialogOpen && statementDialogMonth === st.month}
+										onclick={() => openStatementDialog(st.month)}
+									>
+										{st.label}
+									</button>
+									{#if canManage && st.remainingCents > 0}
+										<div class="mt-1 text-[11px] text-muted-foreground">
+											{formatMoney(st.remainingCents)} still due
+										</div>
+									{/if}
+								</td>
+								<td class="px-3 py-3 tabular-nums">{formatMoney(st.chargedCents)}</td>
+								<td class="px-3 py-3 tabular-nums">{formatMoney(st.paidCents)}</td>
+								<td class="px-3 py-3 tabular-nums">{formatMoney(st.remainingCents)}</td>
+								<td class="px-3 py-3 text-right">
+									<div class="flex flex-col items-stretch gap-2 sm:items-end">
+										{#if printHref}
+											<Button href={printHref(st.month)} target="_blank" variant="outline" size="sm" class="min-h-10 whitespace-nowrap">
+												<FileText class="size-4" /> Download statement
+											</Button>
+										{/if}
+										{#if canManage && st.remainingCents > 0}
+											{#if monthPayHref}
+												<Button href={monthPayHref(st.month)} variant="outline" class="min-h-10 border-orange-200 bg-orange-100 text-orange-900 shadow-sm hover:bg-orange-200 whitespace-nowrap">
+													<Receipt class="size-4" /> Record payment
+												</Button>
+											{:else}
+												<Button variant="outline" class="min-h-10 border-orange-200 bg-orange-100 text-orange-900 shadow-sm hover:bg-orange-200 whitespace-nowrap" onclick={() => onMonthPay?.(st.month)}>
+													<Receipt class="size-4" /> Record payment
+												</Button>
+											{/if}
+										{/if}
+									</div>
+								</td>
+							</tr>
 						{/each}
-					</ul>
-				</div>
-				{@render scheduleControls(dm.month, dm.publishAt)}
-			{/if}
+					</tbody>
+				</table>
+			</div>
 		</CardContent>
 	</Card>
-{/each}
+{/if}
+
+<Dialog.Root bind:open={statementDialogOpen}>
+	<Dialog.Portal>
+		<Dialog.Overlay class="bg-slate-950/60" />
+		<Dialog.Content class="max-h-[85dvh] w-[min(92vw,42rem)] overflow-y-auto rounded-xl border bg-white p-0 text-slate-900 shadow-lg dark:bg-slate-900 dark:text-slate-100">
+			{#if activeStatement}
+				<div class="p-4 sm:p-6">
+					<Dialog.Header class="mb-4 text-left">
+						<Dialog.Title class="flex items-center gap-2 text-lg font-semibold">
+							<FileText class="text-ocean size-5" /> {activeStatement.label} statement
+						</Dialog.Title>
+						<Dialog.Description class="mt-1 text-sm text-muted-foreground">
+							Preview of the charges, payments, and totals for this billing month.
+						</Dialog.Description>
+					</Dialog.Header>
+
+					<div class="mb-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
+						<div class="rounded-md border bg-slate-50 p-3 dark:bg-slate-800/60">
+							<p class="text-muted-foreground text-[11px] uppercase tracking-wide">Charged</p>
+							<p class="mt-1 font-semibold tabular-nums">{formatMoney(activeStatement.chargedCents)}</p>
+						</div>
+						<div class="rounded-md border bg-slate-50 p-3 dark:bg-slate-800/60">
+							<p class="text-muted-foreground text-[11px] uppercase tracking-wide">Paid</p>
+							<p class="mt-1 font-semibold tabular-nums">{formatMoney(activeStatement.paidCents)}</p>
+						</div>
+						<div class="rounded-md border bg-slate-50 p-3 dark:bg-slate-800/60 sm:col-span-1">
+							<p class="text-muted-foreground text-[11px] uppercase tracking-wide">Remaining</p>
+							<p class="mt-1 font-semibold tabular-nums">{formatMoney(activeStatement.remainingCents)}</p>
+						</div>
+					</div>
+
+					{#if activeStatement.charges.length > 0}
+						<div class="overflow-x-auto rounded-md border">
+							<table class="min-w-full text-left text-sm">
+								<thead class="bg-muted/60 text-muted-foreground text-xs uppercase tracking-wide">
+									<tr>
+										<th class="px-3 py-2 font-medium">Charge</th>
+										<th class="px-3 py-2 font-medium">Due</th>
+										<th class="px-3 py-2 font-medium text-right">Amount</th>
+										<th class="px-3 py-2 font-medium text-right">Paid</th>
+										<th class="px-3 py-2 font-medium text-right">Left</th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each activeStatement.charges as c (c.id)}
+										{@const paid = paidFor(c.id)}
+										<tr class="border-t align-top">
+											<td class="px-3 py-2">{c.description}</td>
+											<td class="px-3 py-2 whitespace-nowrap">{c.due_date ? formatDate(c.due_date) : '—'}</td>
+											<td class="px-3 py-2 text-right tabular-nums">{formatMoney(c.amount_cents)}</td>
+											<td class="px-3 py-2 text-right tabular-nums">{formatMoney(paid)}</td>
+											<td class="px-3 py-2 text-right tabular-nums">{formatMoney(Math.max(0, c.amount_cents - paid))}</td>
+										</tr>
+									{/each}
+									<tr class="border-t bg-slate-50 font-medium dark:bg-slate-800/60">
+										<td class="px-3 py-2" colspan="2">Statement total</td>
+										<td class="px-3 py-2 text-right tabular-nums">{formatMoney(activeStatement.chargedCents)}</td>
+										<td class="px-3 py-2 text-right tabular-nums">{formatMoney(activeStatement.paidCents)}</td>
+										<td class="px-3 py-2 text-right tabular-nums">{formatMoney(activeStatement.remainingCents)}</td>
+									</tr>
+								</tbody>
+							</table>
+						</div>
+					{/if}
+
+					{#if activeStatement.payments.length > 0}
+						<section class="mt-4">
+							<h3 class="mb-2 text-sm font-semibold">Payments applied</h3>
+							<ul class="space-y-2 text-sm">
+								{#each activeStatement.payments as p (p.id)}
+									<li class="rounded-md border px-3 py-2">
+										<div class="flex items-center justify-between gap-2">
+											<span>{p.date ? formatDate(p.date) : '—'}</span>
+											<strong class="tabular-nums">{formatMoney(p.amount_cents)}</strong>
+										</div>
+										<div class="text-muted-foreground mt-1 text-xs">
+											{p.method ? (methodLabels[p.method] ?? p.method) : '—'}
+											{#if p.reference} · ref {p.reference}{/if}
+										</div>
+									</li>
+								{/each}
+							</ul>
+						</section>
+					{:else}
+						<p class="text-muted-foreground mt-4 text-sm">No payments were recorded for this month.</p>
+					{/if}
+
+					<Dialog.Footer class="mt-6 flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+						{#if printHref}
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								class="min-h-10"
+								onclick={() => {
+									const url = printHref(activeStatement.month);
+									window.open(url, '_blank', 'noopener,noreferrer');
+								}}
+							>
+								<Printer class="size-4" /> Print
+							</Button>
+						{/if}
+						{#if printHref}
+							<Button href={printHref(activeStatement.month)} target="_blank" variant="outline" size="sm" class="min-h-10">
+								<FileText class="size-4" /> Download PDF
+							</Button>
+						{/if}
+						<Dialog.Close class="min-h-10 rounded-md border px-4 text-sm font-medium">Close</Dialog.Close>
+					</Dialog.Footer>
+				</div>
+			{/if}
+		</Dialog.Content>
+	</Dialog.Portal>
+</Dialog.Root>
 
 	{#each draftMonths.filter((dm) => !statementMonths.has(dm.month)) as dm (dm.month)}
 		<Card class="border-amber-300">

@@ -6,7 +6,8 @@ import { buildBrandedNoticePdf } from '$lib/server/pdf';
 import { earliestMoveOutDate, MIN_NOTICE_DAYS, pacificToday } from '$lib/move-out-notice';
 import { formatDate } from '$lib/format';
 import { managementContact } from '$lib/server/messages';
-import { getLeaseCharges, summarizeLedger } from '$lib/server/billing';
+import { filterTenantPreviewCharges, getLeaseCharges, summarizeLedger } from '$lib/server/billing';
+import { createSuperuserClient } from '$lib/server/pb';
 import type { Charge, DocRecord, HelpVideo, Inspection, Lease, MaintenanceRequest, Message, MoveOutNotice, Payment, PropertyAccess, UnitSettings } from '$lib/types';
 
 export const load: PageServerLoad = async (event) => {
@@ -23,6 +24,7 @@ export const load: PageServerLoad = async (event) => {
 	}
 
 	let charges: Charge[] = [];
+	let previewCharges: ReturnType<typeof filterTenantPreviewCharges> = [];
 	let payments: Payment[] = [];
 	let inspections: Inspection[] = [];
 	let documents: DocRecord[] = [];
@@ -59,6 +61,23 @@ export const load: PageServerLoad = async (event) => {
 		inspections = inspectionsRes;
 		documents = documentsRes;
 		moveOutNotices = noticesRes;
+
+		// Draft preview access is deliberately not exposed through the tenant's
+		// PocketBase auth. We verify the lease belongs to the signed-in tenant, then
+		// fetch preview-enabled drafts through a server-side privileged client and
+		// sanitize the response to only tenant-facing fields.
+		try {
+			const adminPb = await createSuperuserClient();
+			const previewDrafts = (await adminPb
+				.collection('charges')
+				.getFullList({
+					filter: `lease = "${lease.id}" && status = "draft" && preview_visible = true`,
+					sort: 'due_date,created'
+				})) as unknown as Charge[];
+			previewCharges = filterTenantPreviewCharges(previewDrafts, lease.id);
+		} catch {
+			previewCharges = [];
+		}
 	}
 
 	const [maintenance, messages, contact] = await Promise.all([
@@ -149,6 +168,7 @@ export const load: PageServerLoad = async (event) => {
 		helpVideos,
 		propertyAccess,
 		propertyAccessError,
+		previewCharges,
 		ledger: summarizeLedger(charges, payments)
 	};
 };

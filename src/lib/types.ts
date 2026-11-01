@@ -91,11 +91,13 @@ export interface Charge {
 	type: ChargeType;
 	description: string;
 	amount_cents: number;
+	amount_pending?: boolean;
 	due_date: string; // YYYY-MM-DD
 	prorated: boolean;
 	status: 'draft' | 'published';
 	period_start: string; // YYYY-MM-DD or ''
 	period_end: string; // YYYY-MM-DD or ''
+	preview_visible?: boolean;
 	publish_at?: string; // scheduled publication instant ('' when unscheduled)
 	calc: import('./billing').RentComputation | null; // frozen calculation details
 	created: string;

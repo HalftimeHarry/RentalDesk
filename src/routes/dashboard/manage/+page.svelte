@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { ActionData, PageData } from './$types';
+	import { enhance } from '$app/forms';
 	import { Button } from '$lib/components/ui/button';
 	import {
 		Card,
@@ -219,14 +220,6 @@
 					/>
 
 					<SettingsCard settings={data.settings} propertyAccess={data.propertyAccess} {form} />
-
-					<TeamCard
-						users={data.allUsers}
-						invitations={data.invitations}
-						currentUserId={data.user.id}
-						isOwner={data.user.role === 'owner'}
-						{form}
-					/>
 				</div>
 			</div>
 		</details>
@@ -278,6 +271,74 @@
 		</details>
 		</div>
 	</div>
+
+	<details class="group mt-4 block" open={false}>
+		<summary class="list-none cursor-pointer [&::-webkit-details-marker]:hidden">
+			<div class="flex items-center justify-between gap-3 rounded-xl border border-transparent bg-transparent px-0 py-2 text-left">
+				<div class="flex items-center gap-2 text-base font-semibold text-slate-900">
+					<Users class="text-ocean size-5" /> Manage people
+				</div>
+				<ChevronDown class="text-muted-foreground size-4 shrink-0 transition-transform group-open:rotate-180" />
+			</div>
+		</summary>
+		<div class="mt-3 flex flex-col gap-4">
+			<Card>
+				<CardContent class="flex flex-col gap-4 pt-6">
+					<p class="text-sm text-slate-600">
+						Invite new staff or tenant access by link. Direct role changes stay Owner-only.
+					</p>
+					{#if form?.section === 'team'}
+						<p class="bg-muted rounded-md px-3 py-2 text-sm">{form.message}</p>
+						{#if form.inviteUrl}
+							<div class="flex flex-col gap-1 rounded-md border border-turquoise/40 bg-turquoise/10 px-3 py-2">
+								<label for="invite-link" class="text-xs font-medium">Invitation link (local testing — share manually)</label>
+								<Input id="invite-link" readonly value={form.inviteUrl} onclick={(e) => e.currentTarget.select()} />
+							</div>
+						{/if}
+					{/if}
+					<div class="grid gap-3 md:grid-cols-2">
+						<form method="POST" action="?/inviteAdmin" use:enhance class="flex flex-col gap-2 rounded-lg border p-3">
+							<div class="flex flex-col gap-2">
+								<label for="invite-email" class="text-sm font-medium">Invite admin</label>
+								<Input id="invite-email" name="email" type="email" placeholder="name@example.com" required />
+							</div>
+							<Button type="submit" variant="outline" class="min-h-12">Invite admin</Button>
+						</form>
+						<form method="POST" action="?/inviteTenant" use:enhance class="flex flex-col gap-2 rounded-lg border p-3">
+							<div class="flex flex-col gap-2">
+								<label for="tenant-email" class="text-sm font-medium">Invite tenant</label>
+								<Input id="tenant-email" name="email" type="email" placeholder="tenant@example.com" required />
+							</div>
+							<Button type="submit" variant="secondary" class="min-h-12">Invite tenant</Button>
+						</form>
+					</div>
+					{#if data.invitations.length > 0}
+						<div class="flex flex-col gap-2">
+							<p class="text-sm font-medium">Invitations</p>
+							<ul class="divide-y rounded-md border text-sm">
+								{#each data.invitations as inv (inv.id)}
+									<li class="flex flex-wrap items-center justify-between gap-2 p-3">
+										<span>{inv.email}</span>
+										<span class="flex items-center gap-2">
+											<span class="text-muted-foreground text-xs">
+												{formatDate(inv.created)} · {inv.status === 'accepted' && inv.accepted_at ? `accepted ${formatDate(inv.accepted_at)}` : `expires ${formatDate(inv.expires)}`}
+											</span>
+											<span class="inline-flex items-center rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-xs capitalize text-slate-700">{inv.status}</span>
+										</span>
+									</li>
+								{/each}
+							</ul>
+						</div>
+					{/if}
+				</CardContent>
+			</Card>
+			<TeamCard
+				users={data.allUsers}
+				currentUserId={data.user.id}
+				isOwner={data.user.role === 'owner'}
+			/>
+		</div>
+	</details>
 
 	<!-- Inspection report: the primary action follows the saved workflow stage.
 		The stage field stays internal — no selector on this card. -->

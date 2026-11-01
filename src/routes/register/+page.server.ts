@@ -4,8 +4,11 @@ import { dashboardPath } from '$lib/server/guard';
 
 export const load: PageServerLoad = async ({ locals, url }) => {
 	const next = url.searchParams.get('next');
+	const email = url.searchParams.get('email')?.trim().toLowerCase() ?? '';
+	const tenantInvite = url.searchParams.has('tenantInvite');
 	if (locals.user) redirect(303, next && next.startsWith('/') && !next.startsWith('//') ? next : dashboardPath(locals.user));
 	if (next && next.startsWith('/invite/')) redirect(303, next);
+	return { email, tenantInvite };
 };
 
 export const actions: Actions = {

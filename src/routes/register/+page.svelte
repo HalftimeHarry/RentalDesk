@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { ActionData } from './$types';
+	import type { ActionData, PageData } from './$types';
 	import { enhance } from '$app/forms';
 	import { Button } from '$lib/components/ui/button';
 	import {
@@ -13,7 +13,7 @@
 	import { Label } from '$lib/components/ui/label';
 	import ApplicantNextSteps from '$lib/components/ApplicantNextSteps.svelte';
 
-	let { form }: { form: ActionData } = $props();
+	let { data, form }: { data: PageData; form: ActionData } = $props();
 </script>
 
 <svelte:head>
@@ -34,6 +34,11 @@
 					{form.message}
 				</p>
 			{/if}
+			{#if data.tenantInvite}
+				<p class="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+					This invitation starts an Applicant account only. Approval, signed lease, and explicit lease activation still apply before tenant access is granted.
+				</p>
+			{/if}
 			<form method="POST" use:enhance class="flex flex-col gap-4">
 				<div class="flex flex-col gap-2">
 					<Label for="name">Full name</Label>
@@ -47,7 +52,7 @@
 						type="email"
 						autocomplete="email"
 						required
-						value={form?.email ?? ''}
+						value={form?.email ?? data.email ?? ''}
 					/>
 				</div>
 				<div class="flex flex-col gap-2">
