@@ -32,7 +32,7 @@
 	import { formatDate, formatMoney } from '$lib/format';
 	import { billStatus, monthLabel } from '$lib/billing';
 	import type { Charge, DocRecord, MoveOutNotice, PropertyAccess } from '$lib/types';
-	import { Eye, FileText, House, Receipt, Wallet, ClipboardCheck, Wrench, MessageSquare, ShieldCheck, Zap, Check, Copy, HandCoins, Camera, LogOut, X, Play } from '@lucide/svelte';
+	import { Eye, FileText, FileDown, House, Receipt, Wallet, ClipboardCheck, Wrench, MessageSquare, ShieldCheck, Zap, Check, ChevronDown, ChevronLeft, ChevronRight, Copy, HandCoins, Camera, LogOut, X, Play } from '@lucide/svelte';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 	let lease = $derived(data.lease);
@@ -91,6 +91,20 @@
 			propertyAccessCopied[entry.id] = false;
 		}
 	}
+
+	// Payments pagination — purely client-side presentation: 5 rows per page over
+	// the server-sorted list (order untouched). Page clamped so it stays valid if
+	// the list shrinks after an invalidation.
+	const PAYMENTS_PER_PAGE = 5;
+	let paymentsPage = $state(1);
+	let paymentsPageCount = $derived(Math.max(1, Math.ceil(data.payments.length / PAYMENTS_PER_PAGE)));
+	let currentPaymentsPage = $derived(Math.min(paymentsPage, paymentsPageCount));
+	let pagedPayments = $derived(
+		data.payments.slice(
+			(currentPaymentsPage - 1) * PAYMENTS_PER_PAGE,
+			currentPaymentsPage * PAYMENTS_PER_PAGE
+		)
+	);
 
 	// One-tap summary a tenant can paste to a delivery person: address, unit
 	// number, and every current code. Gates scope by `property`, so their `unit`
@@ -427,24 +441,30 @@
 		</Card>
 	{:else if data.propertyAccess.length > 0}
 		<Card>
-			<CardHeader class="pb-3">
-				<div class="flex flex-wrap items-start justify-between gap-2">
-					<div class="space-y-1.5">
-						<CardTitle class="flex items-center gap-2">
-							<ShieldCheck class="text-ocean size-5" /> Property access
-						</CardTitle>
-						<CardDescription>Current gate and lockbox details for this unit.</CardDescription>
+			<!-- Branded expandable section (native details/summary: focusable, toggles
+			     with Enter/Space). Collapsed by default — codes stay out of sight. -->
+			<details class="group block" open={false}>
+				<summary class="list-none cursor-pointer [&::-webkit-details-marker]:hidden">
+					<div class="flex items-center justify-between gap-3 px-6 text-left">
+						<div class="space-y-1.5">
+							<CardTitle class="flex items-center gap-2">
+								<ShieldCheck class="text-ocean size-5" /> Property access
+							</CardTitle>
+							<CardDescription>Current gate and lockbox details for this unit.</CardDescription>
+						</div>
+						<ChevronDown class="text-muted-foreground size-4 shrink-0 transition-transform group-open:rotate-180" />
 					</div>
-					<Button type="button" variant="outline" size="sm" class="min-h-9" onclick={copyDeliveryInfo}>
-						{#if deliveryCopied}
-							<Check class="size-4" /> Copied
-						{:else}
-							<Copy class="size-4" /> Copy for delivery
-						{/if}
-					</Button>
-				</div>
-			</CardHeader>
-			<CardContent class="space-y-3">
+				</summary>
+				<CardContent class="space-y-3 pt-4">
+					<div class="flex justify-end">
+						<Button type="button" variant="outline" size="sm" class="min-h-9" onclick={copyDeliveryInfo}>
+							{#if deliveryCopied}
+								<Check class="size-4" /> Copied
+							{:else}
+								<Copy class="size-4" /> Copy for delivery
+							{/if}
+						</Button>
+					</div>
 				{#each data.propertyAccess as entry (entry.id)}
 					<div class="rounded-lg border border-slate-200 bg-slate-50 p-3">
 						<div class="flex items-center justify-between gap-2">
@@ -478,7 +498,8 @@
 						{/if}
 					</div>
 				{/each}
-			</CardContent>
+				</CardContent>
+			</details>
 		</Card>
 	{/if}
 
@@ -620,13 +641,28 @@
 
 		<!-- Lease -->
 		<Card>
-			<CardHeader>
-				<div class="flex items-center justify-between gap-2">
-					<CardTitle class="flex items-center gap-2">
-						<House class="text-ocean size-5" /> Lease
-					</CardTitle>
+			<!-- Branded expandable section (native details/summary: focusable, toggles
+			     with Enter/Space). Collapsed by default; auto-opens once after a
+			     move-out notice action so its confirmation message stays visible. -->
+			<details class="group block" open={form?.section === 'notice'}>
+				<summary class="list-none cursor-pointer [&::-webkit-details-marker]:hidden">
+					<div class="flex items-center justify-between gap-3 px-6 text-left">
+						<div class="space-y-1.5">
+							<CardTitle class="flex flex-wrap items-center gap-2">
+								<House class="text-ocean size-5" /> Lease
+								<StatusBadge status={lease.status} />
+							</CardTitle>
+							<CardDescription>
+								{formatDate(lease.start_date)} – {formatDate(lease.end_date)} · {formatMoney(
+									lease.monthly_rent_cents
+								)}/month · deposit {formatMoney(lease.deposit_cents)}
+							</CardDescription>
+						</div>
+						<ChevronDown class="text-muted-foreground size-4 shrink-0 transition-transform group-open:rotate-180" />
+					</div>
+				</summary>
+				<CardContent class="pt-4">
 					<div class="flex flex-wrap items-center gap-2">
-						<StatusBadge status={lease.status} />
 						<Button variant="outline" size="sm" class="min-h-12" onclick={() => (leaseOpen = true)}>
 							<Eye class="size-4" /> View summarized lease
 						</Button>
@@ -651,13 +687,7 @@
 							correctFrom={noticeCorrectFrom}
 						/>
 					</div>
-				</div>
-				<CardDescription>
-					{formatDate(lease.start_date)} – {formatDate(lease.end_date)} · {formatMoney(
-						lease.monthly_rent_cents
-					)}/month · deposit {formatMoney(lease.deposit_cents)}
-				</CardDescription>
-			</CardHeader>
+				</CardContent>
 			{#if data.documents.length > 0}
 				<CardContent>
 					<p class="mb-2 text-sm font-medium">Lease documents</p>
@@ -807,6 +837,7 @@
 					</form>
 				</div>
 			</CardContent>
+			</details>
 		</Card>
 
 		<!-- Monthly statements -->
@@ -825,13 +856,27 @@
 		<!-- Payments -->
 		<Card>
 			<CardHeader>
-				<CardTitle class="flex items-center gap-2">
-					<Wallet class="text-turquoise size-5" /> Payments
-				</CardTitle>
-				<CardDescription>
-					Payments are made outside the app and recorded by the management team once received.
-					Message them if something looks off.
-				</CardDescription>
+				<div class="flex flex-wrap items-start justify-between gap-2">
+					<div class="space-y-1.5">
+						<CardTitle class="flex items-center gap-2">
+							<Wallet class="text-turquoise size-5" /> Payments
+						</CardTitle>
+						<CardDescription>
+							Payments are made outside the app and recorded by the management team once received.
+							Message them if something looks off.
+						</CardDescription>
+					</div>
+					<!-- Server-rendered export of the FULL history (all pages, same order). -->
+					<Button
+						href="/dashboard/tenant/payments.pdf"
+						variant="outline"
+						size="sm"
+						class="min-h-9"
+						disabled={data.payments.length === 0}
+					>
+						<FileDown class="size-4" /> Download payment history PDF
+					</Button>
+				</div>
 				{#if data.settings?.zelle_instructions}
 					<p class="bg-ocean/10 text-navy mx-6 rounded-md px-3 py-2 text-sm">
 						<strong>Pay with Zelle:</strong> {data.settings.zelle_instructions}
@@ -853,8 +898,10 @@
 							</TableRow>
 						</TableHeader>
 						<TableBody>
-							{#each data.payments as p (p.id)}
-								<TableRow>
+							{#each pagedPayments as p (p.id)}
+								<!-- Alternating stripes: warm white (sand) / pale ocean tint.
+								     Navy foreground stays readable on both. -->
+								<TableRow class="odd:bg-sand even:bg-ocean/5">
 									<TableCell>{formatDate(p.date)}</TableCell>
 									<TableCell>{methodLabels[p.method] ?? p.method}</TableCell>
 									<TableCell>{p.applies_to === 'deposit' ? 'Deposit' : 'Rent'}</TableCell>
@@ -865,6 +912,33 @@
 							{/each}
 						</TableBody>
 					</Table>
+					{#if data.payments.length > PAYMENTS_PER_PAGE}
+						<nav class="mt-3 flex items-center justify-between gap-2" aria-label="Payments pages">
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								class="min-h-9"
+								disabled={currentPaymentsPage <= 1}
+								onclick={() => (paymentsPage = currentPaymentsPage - 1)}
+							>
+								<ChevronLeft class="size-4" /> Previous
+							</Button>
+							<p class="text-muted-foreground text-sm" aria-live="polite">
+								Page {currentPaymentsPage} of {paymentsPageCount}
+							</p>
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								class="min-h-9"
+								disabled={currentPaymentsPage >= paymentsPageCount}
+								onclick={() => (paymentsPage = currentPaymentsPage + 1)}
+							>
+								Next <ChevronRight class="size-4" />
+							</Button>
+						</nav>
+					{/if}
 				{/if}
 			</CardContent>
 		</Card>
