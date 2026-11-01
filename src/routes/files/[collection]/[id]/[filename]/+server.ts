@@ -32,7 +32,12 @@ export const GET: RequestHandler = async (event) => {
 		`${encodeURIComponent(event.params.id)}/${encodeURIComponent(event.params.filename)}` +
 		`?token=${encodeURIComponent(token)}${thumbParam}`;
 
-	const upstream = await fetch(target);
+	// Forward Range requests so media streaming and seeking work through the
+	// proxy: browsers resume paused/raw-seeked video with `Range: bytes=N-` and
+	// require the matching 206/Content-Range reply. PocketBase's file endpoint
+	// supports ranges natively; authorization is unchanged (same user token).
+	const range = event.request.headers.get('range');
+	const upstream = await fetch(target, range ? { headers: { range } } : undefined);
 	if (!upstream.ok) {
 		// Relay PocketBase's decision (404 when the viewRule rejects this user).
 		error(upstream.status === 403 ? 403 : 404, 'File not available.');
@@ -45,14 +50,20 @@ export const GET: RequestHandler = async (event) => {
 			? `attachment; filename="${safeName}"`
 			: (upstream.headers.get('content-disposition') ?? `inline; filename="${safeName}"`);
 
+	const passthrough: Record<string, string> = {};
+	for (const name of ['content-length', 'content-range', 'accept-ranges', 'last-modified', 'etag']) {
+		const value = upstream.headers.get(name);
+		if (value) passthrough[name] = value;
+	}
+
 	return new Response(upstream.body, {
-		status: 200,
+		// 206 for satisfied range requests, 200 otherwise — as upstream decided.
+		status: upstream.status === 206 ? 206 : 200,
 		headers: {
 			'content-type': upstream.headers.get('content-type') ?? 'application/octet-stream',
 			'content-disposition': disposition,
-			...(upstream.headers.get('content-length')
-				? { 'content-length': upstream.headers.get('content-length')! }
-				: {}),
+			'accept-ranges': passthrough['accept-ranges'] ?? 'bytes',
+			...passthrough,
 			'cache-control': 'private, no-store'
 		}
 	});
